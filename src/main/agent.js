@@ -50,6 +50,7 @@ class AgentSession extends BaseSession {
       this.setStatus(active[this.agentSessionId] ? 'working' : 'waiting', 'api');
       await this.refresh();
       this._log('connected to OpenCode at ' + this.client.url);
+      await this.refreshModel();
     } catch (e) {
       this.error = e.message;
       this._log('error: ' + e.message);
@@ -178,8 +179,18 @@ class AgentSession extends BaseSession {
     this.start();
   }
 
+  // Default model of the OpenCode server (depends on which providers are logged in).
+  async refreshModel() {
+    try {
+      const r = await this.client.api('GET', '/api/model/default');
+      const m = r && r.data;
+      this.model = m ? `${m.providerID}/${m.modelID || m.id}${m.name ? ' (' + m.name + ')' : ''}` : '';
+    } catch { this.model = ''; }
+    this.mgr.emit('updated', this);
+  }
+
   info() {
-    return { ...super.info(), agentSessionId: this.agentSessionId, url: this.client && this.client.url };
+    return { ...super.info(), agentSessionId: this.agentSessionId, url: this.client && this.client.url, model: this.model || '' };
   }
 
   // Values persisted with the open-session list so the agent can be re-attached after restart.

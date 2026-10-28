@@ -516,6 +516,7 @@ on('session:closed', ({ id }) => {
 on('session:updated', (info) => {
   const prev = S.sessions.get(info.id);
   S.sessions.set(info.id, info);
+  if (info.kind === 'agent') pages.refreshChatStatus(ctx, info.id);
   if (!prev || prev.name !== info.name || prev.shared !== info.shared || prev.orchestrator !== info.orchestrator || prev.error !== info.error || prev.status !== info.status) renderSoon();
 });
 on('session:status', ({ id, status, lastOutputAt }) => {

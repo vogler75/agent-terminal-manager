@@ -47,11 +47,20 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
 export function fillStatus(ctx, el, s) {
   clear(el);
   const info = ctx.S.sessions.get(s.id) || s;
-  el.append(ctx.dot(info.status), h('span', null, ctx.STATUS_LABEL[info.status] || info.status),
-    h('span', { class: 'muted' }, 'OpenCode' + (info.url ? ' · ' + info.url : '') + (info.agentSessionId ? ' · ' + info.agentSessionId : '')),
+  // Element.append() would print null as text, so drop empty parts first.
+  el.append(...[
+    ctx.dot(info.status), h('span', null, ctx.STATUS_LABEL[info.status] || info.status),
+    h('span', { title: info.agentSessionId ? `OpenCode session ${info.agentSessionId} at ${info.url}` : '' }, 'OpenCode'),
+    info.model ? h('span', { class: 'muted', title: 'Default model of this OpenCode server' }, '· ' + info.model)
+      : info.status !== 'starting' && info.status !== 'error' ? h('span', { class: 'warn' }, '· no model — log in to a provider') : null,
     info.error ? h('span', { class: 'bad' }, info.error) : null,
     h('span', { class: 'spacer' }),
-    info.status === 'error' ? h('button', { onclick: () => ctx.call('reconnect', s.id) }, 'Reconnect') : null);
+    h('button', { title: 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: async () => {
+      try { const t = await ctx.call('agentLogin', s.id); ctx.selectSession(t.id); } catch (e) { toast(e.message, { error: true }); }
+    } }, 'Provider login'),
+    h('button', { class: 'icon', title: 'Refresh the model after logging in', onclick: () => ctx.call('agentRefreshModel', s.id) }, '↻'),
+    info.status === 'error' ? h('button', { onclick: () => ctx.call('reconnect', s.id) }, 'Reconnect') : null,
+  ].filter(Boolean));
 }
 
 export function renderChatLog(ctx, id) {

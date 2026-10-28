@@ -176,6 +176,26 @@ const api = {
   agentSend: (id, text) => { const s = sessions.get(id); if (!s) throw new Error('no session'); return s.send(text); },
   agentMessages: (id) => { const s = sessions.get(id); return s && s.refresh ? s.refresh() : []; },
   agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
+  agentRefreshModel: (id) => { const s = sessions.get(id); return s && s.refreshModel ? s.refreshModel() : null; },
+  // Opens a terminal in the agent's project running the interactive `opencode auth login`.
+  // Credentials are stored per user and machine, so all OpenCode servers there use them.
+  agentLogin: (id) => {
+    const s = sessions.get(id);
+    if (!s) throw new Error('no session');
+    const p = s.project;
+    let cmd;
+    if (p.type === 'local') {
+      const bin = findOpencode(store.settings.opencodePath || (p.agentCommand !== 'opencode' ? p.agentCommand : ''));
+      if (!bin) throw new Error('OpenCode binary not found. Set its path in Settings.');
+      cmd = process.platform === 'win32' ? `& '${bin.replace(/'/g, "''")}' auth login` : `'${bin.replace(/'/g, "'\\''")}' auth login`;
+    } else {
+      cmd = `${p.agentCommand || 'opencode'} auth login`;
+    }
+    const t = sessions.open(p.id, { name: 'opencode-login', command: '', kind: 'terminal' });
+    setTimeout(() => t.send(cmd).catch(() => {}), 1500);
+    audit.add({ source: 'app', action: 'agents.provider-login', detail: `${p.name}/${s.name}` });
+    return t.info();
+  },
 
   // settings, import/export
   updateSettings: async (patch) => {
