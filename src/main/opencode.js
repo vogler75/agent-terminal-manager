@@ -127,10 +127,23 @@ class OpenCodeClient extends EventEmitter {
   setInstructions(id, key, value) {
     return this.api('PUT', `/api/experimental/session/${id}/instructions/entries/${encodeURIComponent(key)}`, { value });
   }
-  setModel(id, model) {
-    // model: "provider/model"
-    const [providerID, ...rest] = String(model).split('/');
-    return this.api('POST', `/api/session/${id}/model`, { model: { providerID, id: rest.join('/') } });
+  // model: "provider/model" or {providerID, id}; variant: e.g. reasoning effort ("high"), optional.
+  setModel(id, model, variant) {
+    let ref = model;
+    if (typeof model === 'string') {
+      const [providerID, ...rest] = model.split('/');
+      ref = { providerID, id: rest.join('/') };
+    }
+    const body = { providerID: ref.providerID, id: ref.id };
+    if (variant) body.variant = variant;
+    return this.api('POST', `/api/session/${id}/model`, { model: body });
+  }
+  // Models of all connected providers: [{providerID, id, name, variants: [ids]}]
+  async listModels() {
+    const r = await this.api('GET', '/api/model');
+    return (r.data || []).filter((m) => m.enabled !== false && m.status !== 'deprecated').map((m) => ({
+      providerID: m.providerID, id: m.id || m.modelID, name: m.name || m.id, variants: (m.variants || []).map((v) => v.id),
+    }));
   }
   prompt(id, text) { return this.api('POST', `/api/session/${id}/prompt`, { text }); }
   interrupt(id) { return this.api('POST', `/api/session/${id}/interrupt`); }

@@ -16,6 +16,7 @@ class AgentSession extends BaseSession {
     this.agentKey = opts.agentKey || crypto.randomBytes(18).toString('base64url');
     this.remotePort = opts.remotePort || 20000 + Math.floor(Math.random() * 30000);
     this.agentSessionId = opts.agentSessionId || null;
+    this.chosenModel = opts.model || null; // {providerID, id, variant} picked by the user
     this.messages = [];
     this.live = '';
     this.procs = [];
@@ -47,6 +48,11 @@ class AgentSession extends BaseSession {
         this.mgr.persistOpen(this.projectId);
       }
       if (this.command) await this.client.setInstructions(this.agentSessionId, 'atm-start', this.command).catch(() => {});
+      if (this.chosenModel) {
+        const m = this.chosenModel;
+        await this.client.setModel(this.agentSessionId, m, m.variant || undefined)
+          .catch((e) => this._log(`could not apply model ${m.providerID}/${m.id}: ${e.message}`));
+      }
       const active = await this.client.active().catch(() => ({}));
       this.setStatus(active[this.agentSessionId] ? 'working' : 'waiting', 'api');
       await this.refresh();
@@ -237,14 +243,36 @@ class AgentSession extends BaseSession {
     this.start();
   }
 
-  // Default model of the OpenCode server (depends on which providers are logged in).
+  // Current model of this OpenCode session (falls back to the server default).
   async refreshModel() {
     try {
-      const r = await this.client.api('GET', '/api/model/default');
-      const m = r && r.data;
-      this.model = m ? `${m.providerID}/${m.modelID || m.id}${m.name ? ' (' + m.name + ')' : ''}` : '';
+      const s = await this.client.getSession(this.agentSessionId);
+      let ref = s && s.model;
+      if (!ref || !ref.id) {
+        const d = (await this.client.api('GET', '/api/model/default')).data;
+        ref = d ? { providerID: d.providerID, id: d.modelID || d.id } : null;
+      }
+      const models = await this.client.listModels().catch(() => []);
+      const m = ref && models.find((x) => x.providerID === ref.providerID && x.id === ref.id);
+      this.modelRef = ref ? { providerID: ref.providerID, id: ref.id, variant: ref.variant && ref.variant !== 'default' ? ref.variant : '' } : null;
+      this.model = ref ? `${ref.providerID}/${ref.id}${m && m.name ? ' (' + m.name + ')' : ''}${this.modelRef.variant ? ' · ' + this.modelRef.variant : ''}` : '';
     } catch { this.model = ''; }
     this.mgr.emit('updated', this);
+  }
+
+  async listModels() {
+    if (!this.client) throw new Error(`Agent ${this.name} is not connected`);
+    return { current: this.modelRef || null, models: await this.client.listModels() };
+  }
+
+  // Switch the model of this session; remembered so it is applied again after a reconnect or restart.
+  async changeModel(providerID, id, variant) {
+    if (!this.client || !this.agentSessionId) throw new Error(`Agent ${this.name} is not connected`);
+    await this.client.setModel(this.agentSessionId, { providerID, id }, variant || undefined);
+    this.chosenModel = { providerID, id, variant: variant || '' };
+    this.mgr.persistOpen(this.projectId);
+    await this.refreshModel();
+    this._log(`model set to ${providerID}/${id}${variant ? ' (' + variant + ')' : ''}`);
   }
 
   info() {
@@ -253,7 +281,7 @@ class AgentSession extends BaseSession {
 
   // Values persisted with the open-session list so the agent can be re-attached after restart.
   persistExtra() {
-    return { agentKey: this.agentKey, remotePort: this.remotePort, agentSessionId: this.agentSessionId };
+    return { agentKey: this.agentKey, remotePort: this.remotePort, agentSessionId: this.agentSessionId, model: this.chosenModel || null };
   }
 
   close({ killTmux = false } = {}) {

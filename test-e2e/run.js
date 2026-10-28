@@ -535,6 +535,32 @@ const cfgBase = () => {
     await shot('agent-session');
   }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
 
+  await step('Agent session: change the model in the UI; kept after reconnect', async () => {
+    await page.click('#sidebar .proj-name:text("lokal")');
+    await page.click('#sidebar .sess:has-text("oc")');
+    await page.click('.chat-status .model-btn');
+    await page.waitForSelector('.modal input[type=radio]');
+    const before = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).modelRef, ids.agent);
+    // Pick the first model that differs from the current one.
+    const radios = page.locator('.modal label:has(input[type=radio])');
+    const n = await radios.count();
+    let picked = null;
+    for (let i = 0; i < n; i++) {
+      const id = (await radios.nth(i).locator('.mono').textContent()).trim();
+      if (id !== before.id) { await radios.nth(i).locator('input').check(); picked = id; break; }
+    }
+    assert.ok(picked, 'another model available');
+    await page.locator('.modal button.primary').click();
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).modelRef, ids.agent)).id === picked, { msg: 'session uses new model', timeout: 20000 });
+    await page.waitForSelector(`.chat-status .model-btn:has-text("${picked}")`);
+    await shot('agent-model');
+    const saved = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').openSessions.find((s) => s.name === 'oc').model);
+    assert.strictEqual(saved.id, picked, 'model persisted with the session');
+    await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).reconnect(), ids.agent);
+    await waitFor(async () => (await m.status(ids.agent)) === 'waiting', { msg: 'agent reconnected', timeout: 60000 });
+    await waitFor(async () => (await app.evaluate((_e, id) => (globalThis.__atm.sessions.get(id).modelRef || {}).id, ids.agent)) === picked, { msg: 'model kept after reconnect', timeout: 20000 });
+  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+
   await step('P8 orchestrator: start, MCP tools, conflict check, events, pause/stop, max rounds', async () => {
     const devKey = 'p-local/dev';
     const revKey = 'p-local/reviewer';

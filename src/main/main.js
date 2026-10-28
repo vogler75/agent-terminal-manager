@@ -177,6 +177,12 @@ const api = {
   agentMessages: (id) => { const s = sessions.get(id); return s && s.refresh ? s.refresh() : []; },
   agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
   agentRefreshModel: (id) => { const s = sessions.get(id); return s && s.refreshModel ? s.refreshModel() : null; },
+  agentModels: (id) => { const s = sessions.get(id); if (!s || !s.listModels) throw new Error('not an agent session'); return s.listModels(); },
+  agentSetModel: (id, providerID, modelId, variant) => {
+    const s = sessions.get(id);
+    if (!s || !s.changeModel) throw new Error('not an agent session');
+    return s.changeModel(providerID, modelId, variant);
+  },
   // Opens a terminal in the agent's project running the interactive `opencode auth login`.
   // Credentials are stored per user and machine, so all OpenCode servers there use them.
   agentLogin: (id) => {

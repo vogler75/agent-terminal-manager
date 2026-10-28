@@ -1,5 +1,5 @@
 // Structured chat view for OpenCode agent sessions (and reused by the orchestrator view).
-import { h, clear, toast } from './ui.js';
+import { h, clear, toast, modal } from './ui.js';
 
 export function renderMessages(container, messages, live, { compact = false } = {}) {
   const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
@@ -51,7 +51,7 @@ export function fillStatus(ctx, el, s) {
   el.append(...[
     ctx.dot(info.status), h('span', null, ctx.STATUS_LABEL[info.status] || info.status),
     h('span', { title: info.agentSessionId ? `OpenCode session ${info.agentSessionId} at ${info.url}` : '' }, 'OpenCode'),
-    info.model ? h('span', { class: 'muted', title: 'Default model of this OpenCode server' }, '· ' + info.model)
+    info.model ? h('button', { class: 'model-btn', title: 'Change the model of this session', onclick: () => pickModel(ctx, s.id) }, info.model + ' ▾')
       : info.status !== 'starting' && info.status !== 'error' ? h('span', { class: 'warn' }, '· no model — log in to a provider') : null,
     h('span', { class: 'spacer' }),
     h('button', { title: 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: async () => {
@@ -62,6 +62,53 @@ export function fillStatus(ctx, el, s) {
     // Full-width block: start errors can span several lines (server log excerpt).
     info.error ? h('div', { class: 'bad mono', style: { flexBasis: '100%', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '220px', overflow: 'auto' } }, info.error) : null,
   ].filter(Boolean));
+}
+
+// Model picker: models of all logged-in providers, grouped by provider, with search and effort (variant).
+async function pickModel(ctx, sessionId) {
+  let data;
+  try { data = await ctx.call('agentModels', sessionId); } catch (e) { toast(e.message, { error: true }); return; }
+  const { current, models } = data;
+  let selected = current ? models.find((m) => m.providerID === current.providerID && m.id === current.id) : null;
+  const search = h('input', { placeholder: `Search ${models.length} models…` });
+  const list = h('div', { class: 'checklist', style: { maxHeight: '340px' } });
+  const variant = h('select', { style: { width: 'auto' } });
+  const fillVariants = () => {
+    clear(variant);
+    const vs = (selected && selected.variants) || [];
+    variant.appendChild(h('option', { value: '' }, 'default'));
+    for (const v of vs) variant.appendChild(h('option', { value: v, selected: current && current.variant === v && selected.id === current.id }, v));
+    variant.disabled = !vs.length;
+  };
+  const renderList = () => {
+    clear(list);
+    const q = search.value.trim().toLowerCase();
+    const shown = models.filter((m) => !q || `${m.providerID}/${m.id} ${m.name}`.toLowerCase().includes(q));
+    let provider = null;
+    for (const m of shown) {
+      if (m.providerID !== provider) { provider = m.providerID; list.appendChild(h('div', { class: 'muted', style: { marginTop: '6px', fontSize: '11px', textTransform: 'uppercase' } }, provider)); }
+      list.appendChild(h('label', null,
+        h('input', { type: 'radio', name: 'model', checked: selected === m, onchange: () => { selected = m; fillVariants(); } }),
+        m.name, h('span', { class: 'muted mono' }, m.id)));
+    }
+    if (!shown.length) list.appendChild(h('div', { class: 'muted' }, 'No model matches.'));
+  };
+  search.addEventListener('input', renderList);
+  renderList();
+  fillVariants();
+  modal({
+    title: 'Model for this agent session',
+    body: h('div', null,
+      search, h('div', { style: { height: '8px' } }), list,
+      h('div', { class: 'row', style: { marginTop: '10px' } }, h('span', { class: 'muted' }, 'Effort / variant:'), variant),
+      h('p', { class: 'muted' }, 'Only models of logged-in providers are listed. Use “Provider login” to add more (e.g. Anthropic, OpenAI, GitHub Copilot).')),
+    okText: 'Use model',
+    onOk: async () => {
+      if (!selected) throw new Error('Choose a model');
+      await ctx.call('agentSetModel', sessionId, selected.providerID, selected.id, variant.value);
+      toast(`Model: ${selected.providerID}/${selected.id}${variant.value ? ' (' + variant.value + ')' : ''}`);
+    },
+  });
 }
 
 export function renderChatLog(ctx, id) {
