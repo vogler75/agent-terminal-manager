@@ -162,7 +162,7 @@ async function pickModel(ctx, sessionId) {
   const { current, models } = data;
   let selected = current ? models.find((m) => m.providerID === current.providerID && m.id === current.id) : null;
   const search = h('input', { placeholder: `Search ${models.length} models…` });
-  const list = h('div', { class: 'checklist', style: { maxHeight: '340px' } });
+  const list = h('div', { class: 'model-list' });
   const variant = h('select', { style: { width: 'auto' } });
   const fillVariants = () => {
     clear(variant);
@@ -171,18 +171,25 @@ async function pickModel(ctx, sessionId) {
     for (const v of vs) variant.appendChild(h('option', { value: v, selected: current && current.variant === v && selected.id === current.id }, v));
     variant.disabled = !vs.length;
   };
+  // Sorted by provider, then name, so each provider gets one header.
+  const sorted = [...models].sort((a, b) => a.providerID.localeCompare(b.providerID) || a.name.localeCompare(b.name));
+  const isCurrent = (m) => current && m.providerID === current.providerID && m.id === current.id;
   const renderList = () => {
     clear(list);
     const q = search.value.trim().toLowerCase();
-    const shown = models.filter((m) => !q || `${m.providerID}/${m.id} ${m.name}`.toLowerCase().includes(q));
+    const shown = sorted.filter((m) => !q || `${m.providerID}/${m.id} ${m.name}`.toLowerCase().includes(q));
     let provider = null;
     for (const m of shown) {
-      if (m.providerID !== provider) { provider = m.providerID; list.appendChild(h('div', { class: 'muted', style: { marginTop: '6px', fontSize: '11px', textTransform: 'uppercase' } }, provider)); }
-      list.appendChild(h('label', null,
-        h('input', { type: 'radio', name: 'model', checked: selected === m, onchange: () => { selected = m; fillVariants(); } }),
-        m.name, h('span', { class: 'muted mono' }, m.id)));
+      if (m.providerID !== provider) {
+        provider = m.providerID;
+        list.appendChild(h('div', { class: 'model-group' }, provider));
+      }
+      list.appendChild(h('label', { class: 'model-row' + (selected === m ? ' selected' : '') },
+        h('input', { type: 'radio', name: 'model', checked: selected === m, onchange: () => { selected = m; fillVariants(); renderList(); } }),
+        h('span', { class: 'model-name' }, m.name, isCurrent(m) ? h('span', { class: 'tag', style: { marginLeft: '6px' } }, 'current') : null),
+        h('span', { class: 'model-id mono' }, m.id)));
     }
-    if (!shown.length) list.appendChild(h('div', { class: 'muted' }, 'No model matches.'));
+    if (!shown.length) list.appendChild(h('div', { class: 'muted', style: { padding: '8px' } }, 'No model matches.'));
   };
   search.addEventListener('input', renderList);
   renderList();

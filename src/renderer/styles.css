@@ -30,7 +30,7 @@ button.active { background: var(--bg4); border-color: var(--accent2); color: #ff
 button:disabled { opacity: .45; cursor: default; }
 input, select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px; width: 100%; }
 textarea { font-family: var(--mono); font-size: 12px; resize: vertical; }
-input[type=checkbox] { width: auto; }
+input[type=checkbox], input[type=radio] { width: auto; }
 input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent2); }
 label { color: var(--fg2); font-size: 12px; }
 h2 { font-size: 16px; margin: 0 0 12px; font-weight: 600; }
@@ -183,3 +183,10 @@ table.list tr:hover td { background: var(--bg2); }
 .slash-menu { position: absolute; left: 12px; right: 110px; bottom: 100%; margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; max-height: 320px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.45); z-index: 20; }
 .slash-item { display: grid; grid-template-columns: minmax(140px, auto) 1fr auto; gap: 10px; align-items: center; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
 .slash-item.active, .slash-item:hover { background: var(--bg4); }
+.model-list { max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; }
+.model-group { padding: 8px 8px 4px; font-size: 11px; color: var(--fg3); text-transform: uppercase; letter-spacing: .05em; }
+.model-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 4px; cursor: pointer; color: var(--fg); font-size: 13px; }
+.model-row:hover { background: var(--bg3); }
+.model-row.selected { background: var(--bg4); }
+.model-name { flex: 1; min-width: 0; }
+.model-id { color: var(--fg3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
