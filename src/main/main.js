@@ -11,6 +11,10 @@ const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
 const { findOpencode } = require('./opencode');
+const { AgentSetup } = require('./coding-agents/deploy');
+const { SkillsRepo } = require('./coding-agents/skills');
+const secrets = require('./secrets');
+const crypto = require('crypto');
 
 // Allow an isolated data directory (used by tests and for running several profiles).
 if (process.env.ATM_USER_DATA) app.setPath('userData', path.resolve(process.env.ATM_USER_DATA));
@@ -91,14 +95,28 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api };
+  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup() };
 }
 
 let activeSessionId = null;
 
 function publicConfig() {
-  const { tokens, ...rest } = store.data;
-  return rest;
+  const { tokens, mcpLibrary, ...rest } = store.data;
+  // MCP secrets stay in the main process; the renderer only sees which keys exist.
+  return { ...rest, mcpLibrary: mcpLibrary.map(({ secrets: s, ...e }) => ({ ...e, ...secretKeys(s) })) };
+}
+
+function secretKeys(blob) {
+  const s = secrets.decrypt(blob);
+  return { envKeys: Object.keys(s.env || {}), headerKeys: Object.keys(s.headers || {}) };
+}
+
+function agentSetup() {
+  return new AgentSetup({ store, skills: skillsRepo(), audit });
+}
+
+function skillsRepo() {
+  return new SkillsRepo(store.settings.skillsDir || path.join(app.getPath('userData'), 'skills'));
 }
 
 // IPC API exposed to the renderer.
@@ -204,6 +222,66 @@ const api = {
   orchInterrupt: (id) => orchestrators.interrupt(id),
   orchSend: (id, text) => orchestrators.send(id, text),
   orchMessages: (id) => orchestrators.refresh(id),
+
+  // MCP library (servers to deploy to coding agents)
+  libraryGet: (id) => {
+    const e = store.data.mcpLibrary.find((x) => x.id === id);
+    if (!e) return null;
+    const { secrets: blob, ...rest } = e;
+    return { ...rest, ...secrets.decrypt(blob) };
+  },
+  librarySave: (entry) => {
+    const { env, headers, envKeys, headerKeys, ...rest } = entry;
+    const e = { ...rest, id: rest.id || crypto.randomUUID(), secrets: secrets.encrypt({ env: env || {}, headers: headers || {} }) };
+    const list = store.data.mcpLibrary;
+    const i = list.findIndex((x) => x.id === e.id);
+    if (i >= 0) list[i] = e; else list.push(e);
+    store.save();
+    return e.id;
+  },
+  libraryDelete: (id) => {
+    store.data.mcpLibrary = store.data.mcpLibrary.filter((x) => x.id !== id);
+    for (const p of store.data.projects) if (p.agentSetup) p.agentSetup.mcp = (p.agentSetup.mcp || []).filter((x) => x !== id);
+    store.save();
+  },
+
+  // Skills repository
+  skillsList: () => ({ dir: skillsRepo().dir, skills: skillsRepo().list() }),
+  skillsCreate: (name, description) => { const f = skillsRepo().create(name, description); shell.openPath(f); return f; },
+  skillsImport: async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Import skills (a skill folder or a folder of skills)', properties: ['openDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return skillsRepo().importFrom(r.filePaths[0]);
+  },
+  skillsOpenDir: () => { const repo = skillsRepo(); repo.ensure(); return shell.openPath(repo.dir); },
+  skillsChooseDir: async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'Skills repository folder', properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    store.updateSettings({ skillsDir: r.filePaths[0] });
+    return r.filePaths[0];
+  },
+
+  // Coding agents: install, detect, deploy MCP servers + skills
+  agentsList: () => agentSetup().agents(),
+  agentsDetect: (projectId) => agentSetup().detect(store.getProject(projectId)),
+  agentsInstall: async (projectId, agentId, sessionId) => {
+    const p = store.getProject(projectId);
+    const { command } = agentSetup().installCommand(p, agentId);
+    // Typed into a visible terminal, because installers may ask questions.
+    let s = sessionId && sessions.get(sessionId);
+    if (!s || s.kind !== 'terminal' || !s.pty) s = sessions.open(projectId, { name: 'install', command: '' });
+    if (!s.pty) throw new Error('Could not start a terminal for the installation');
+    setTimeout(() => s.send(command).catch(() => {}), s.createdAt > Date.now() - 1500 ? 1500 : 0);
+    audit.add({ source: 'app', action: 'agents.install', detail: `${p.name}: ${agentId}` });
+    return { sessionId: s.id, command };
+  },
+  agentsDeploy: async (projectId) => {
+    const p = store.getProject(projectId);
+    const report = await agentSetup().deploy(p);
+    p.agentSetup = { ...(p.agentSetup || {}), lastDeploy: { time: report.time, ok: report.ok } };
+    store.save();
+    return report;
+  },
 };
 
 function bridgePath() {

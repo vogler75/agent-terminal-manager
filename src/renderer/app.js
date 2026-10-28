@@ -3,6 +3,7 @@ import { h, clear, toast, contextMenu, prompt, confirmDialog, timeAgo } from './
 import { TermView } from './terms.js';
 import { renderChat, renderChatLog } from './chat.js';
 import * as pages from './pages.js';
+import * as agents from './agents.js';
 
 const call = (m, ...a) => window.atm.call(m, ...a);
 
@@ -183,6 +184,7 @@ function renderSidebar() {
     navBtn('orch', 'Orchestrators', orchRunning || undefined),
     navBtn('mcp', 'MCP', S.mcp.running ? '●' : '○'),
     navBtn('audit', 'Audit log'),
+    navBtn('library', 'Library', (S.config.mcpLibrary || []).length || undefined),
     navBtn('settings', 'Settings')));
 }
 
@@ -239,6 +241,7 @@ function renderMain() {
   if (S.view === 'mcp') return pages.renderMcp(ctx, main);
   if (S.view === 'audit') return pages.renderAudit(ctx, main);
   if (S.view === 'settings') return pages.renderSettings(ctx, main);
+  if (S.view === 'library') return agents.renderLibrary(ctx, main);
   renderProject(main);
 }
 
@@ -275,6 +278,7 @@ function renderProject(main) {
     (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Start all configured terminals' }, '▶ All') : null,
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
     h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Tile view (Ctrl+Shift+G)' }, 'Tiles'),
+    h('button', { title: 'Install coding agents, deploy MCP servers and skills', onclick: (e) => agents.agentsMenu(ctx, e, p, activeSessionId(p.id)) }, 'Agents ▾'),
     h('button', { class: 'icon', title: 'Edit project', onclick: () => pages.editProject(ctx, p) }, '⚙')));
 
   if ((p.commands || []).length) {
@@ -542,7 +546,7 @@ on('orch:messages', ({ id, messages }) => { S.orchMessages.set(id, messages); S.
 on('orch:live', ({ id, text }) => { S.orchLive.set(id, text); pages.onOrchMessages(ctx, id); });
 on('focus-session', ({ id }) => selectSession(id));
 
-export const ctx = { S, call, render, renderSoon, showView, openSession, selectSession, project, projectSessions, terms, dot, STATUS_LABEL, closeSession };
+export const ctx = { S, call, render, renderSoon, showView, openSession, selectSession, project, projectSessions, terms, dot, STATUS_LABEL, closeSession, editProject: (p) => pages.editProject(ctx, p) };
 
 // ---------- boot ----------
 (async () => {

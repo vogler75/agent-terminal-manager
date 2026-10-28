@@ -557,6 +557,88 @@ const cfgBase = () => {
     await page.evaluate((id) => window.atm.call('orchRemove', id), o2.id);
   }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
 
+  // ---------------- Coding agents: install menu, MCP library, skills, deploy ----------------
+  const agentWork = path.join(dir, 'agent-proj');
+  await step('Agents: MCP library keeps secrets encrypted; skills repository is scanned', async () => {
+    ids.mcpGh = await page.evaluate(() => window.atm.call('librarySave', { name: 'GitHub Tools', type: 'stdio', command: 'npx', args: ['-y', '@mcp/gh'], env: { GH_TOKEN: 'secret-123' } }));
+    ids.mcpDocs = await page.evaluate(() => window.atm.call('librarySave', { name: 'docs', type: 'http', url: 'https://docs.example/mcp', headers: { Authorization: 'Bearer hdr-456' } }));
+    await waitFor(() => { const raw = fs.readFileSync(path.join(dir, 'config.json'), 'utf8'); return raw.includes('GitHub Tools') && !raw.includes('secret-123') && !raw.includes('hdr-456'); }, { msg: 'library saved without clear-text secrets' });
+    const back = await page.evaluate((id) => window.atm.call('libraryGet', id), ids.mcpGh);
+    assert.strictEqual(back.env.GH_TOKEN, 'secret-123');
+    const skillDir = path.join(dir, 'skills', 'e2e-skill');
+    fs.mkdirSync(path.join(skillDir, 'ref'), { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: e2e-skill\ndescription: Test skill\n---\n# Test\n');
+    fs.writeFileSync(path.join(skillDir, 'ref', 'notes.md'), 'notes');
+    const { skills } = await page.evaluate(() => window.atm.call('skillsList'));
+    assert.deepStrictEqual(skills.map((s) => [s.name, s.description, s.files.length]), [['e2e-skill', 'Test skill', 2]]);
+    await page.click('#sidebar button:has-text("Library")');
+    await page.waitForSelector('#library-page td:has-text("e2e-skill")');
+    await shot('agents-library');
+  });
+
+  await step('Agents: detect, deploy and update on a local project (PowerShell on Windows)', async () => {
+    fs.mkdirSync(agentWork, { recursive: true });
+    fs.writeFileSync(path.join(agentWork, '.mcp.json'), JSON.stringify({ mcpServers: { own: { command: 'mine' } } }));
+    await app.evaluate((_e, a) => globalThis.__atm.store.saveProject({ id: 'p-agents', name: 'agents', type: 'local', tmux: false, directory: a.dir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.gh, a.docs], skills: ['e2e-skill'] } }), { dir: agentWork, gh: ids.mcpGh, docs: ids.mcpDocs });
+    await page.click('#sidebar .proj-name:text("agents")');
+    await page.click('#main .main-head button:has-text("Agents ▾")');
+    await page.click('.menu div:has-text("Detect installed agents")');
+    await page.waitForSelector('.modal td:has-text("Claude Code")', { timeout: 60000 });
+    await shot('agents-detect');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.click('#main .main-head button:has-text("Agents ▾")');
+    await page.click('.menu div:has-text("Deploy MCP & skills")');
+    await page.waitForSelector('.modal .modal-head:text-matches("Deployed")', { timeout: 120000 });
+    await shot('agents-deploy');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    const manifest = JSON.parse(fs.readFileSync(path.join(agentWork, '.agent-terminal-manager', 'deployed.json'), 'utf8'));
+    const detected = await page.evaluate(() => window.atm.call('agentsDetect', 'p-agents'));
+    const installed = detected.filter((a) => a.installed).map((a) => a.id);
+    for (const id of installed) assert.ok(manifest[id], 'manifest has ' + id);
+    if (installed.includes('claude')) {
+      const mcp = JSON.parse(fs.readFileSync(path.join(agentWork, '.mcp.json'), 'utf8')).mcpServers;
+      assert.deepStrictEqual(mcp.own, { command: 'mine' }, 'user server kept');
+      assert.deepStrictEqual(mcp['github-tools'], { type: 'stdio', command: 'npx', args: ['-y', '@mcp/gh'], env: { GH_TOKEN: 'secret-123' } });
+      assert.deepStrictEqual(mcp.docs, { type: 'http', url: 'https://docs.example/mcp', headers: { Authorization: 'Bearer hdr-456' } });
+      assert.strictEqual(fs.readFileSync(path.join(agentWork, '.claude', 'skills', 'e2e-skill', 'ref', 'notes.md'), 'utf8'), 'notes');
+    }
+    if (installed.includes('codex')) assert.ok(fs.existsSync(path.join(agentWork, '.agents', 'skills', 'e2e-skill', 'SKILL.md')), 'codex skills');
+    if (installed.includes('agy')) assert.ok(JSON.parse(fs.readFileSync(path.join(agentWork, '.agents', 'mcp_config.json'), 'utf8')).mcpServers.docs.serverUrl);
+    // Update: deselect one server and the skill; they are removed, the user's own server stays.
+    await app.evaluate((_e, a) => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [a.docs], skills: [] }; }, { docs: ids.mcpDocs });
+    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    assert.ok(rep.ok, JSON.stringify(rep.errors));
+    if (installed.includes('claude')) {
+      const mcp = JSON.parse(fs.readFileSync(path.join(agentWork, '.mcp.json'), 'utf8')).mcpServers;
+      assert.deepStrictEqual(Object.keys(mcp).sort(), ['docs', 'own']);
+      assert.ok(!fs.existsSync(path.join(agentWork, '.claude', 'skills', 'e2e-skill')), 'skill removed on update');
+      assert.deepStrictEqual(rep.agents.find((a) => a.id === 'claude').mcp.removed, ['github-tools']);
+    }
+  });
+
+  await step('Agents: install command is typed into the terminal for the right shell', async () => {
+    const r = await page.evaluate(() => window.atm.call('agentsList'));
+    assert.ok(r.find((a) => a.id === 'claude').install.powershell.includes('install.ps1'));
+    const cmd = await app.evaluate(() => {
+      const s = globalThis.__atm.agentSetup();
+      return [s.installCommand(globalThis.__atm.store.getProject('p-agents'), 'claude'), s.installCommand({ type: 'ssh', host: 'x' }, 'claude')];
+    });
+    assert.strictEqual(cmd[0].kind, IS_WIN ? 'powershell' : 'posix');
+    assert.strictEqual(cmd[1].command, 'curl -fsSL https://claude.ai/install.sh | bash');
+  });
+
+  await step('Agents: deploy over a POSIX shell (WSL)', async () => {
+    const wdir = `/tmp/atm-agents-${RUN}`;
+    await app.evaluate((_e, a) => globalThis.__atm.store.saveProject({ id: 'p-agents-wsl', name: 'agents-wsl', type: 'wsl', wslDistro: a.distro, tmux: false, directory: a.wdir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] } }), { distro: WSL, wdir, docs: ids.mcpDocs });
+    spawnSync('wsl.exe', ['-d', WSL, '--', 'mkdir', '-p', wdir]);
+    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents-wsl'));
+    assert.ok(rep.ok, JSON.stringify(rep.errors));
+    assert.strictEqual(rep.target, 'posix');
+    const m = spawnSync('wsl.exe', ['-d', WSL, '--', 'cat', `${wdir}/.agent-terminal-manager/deployed.json`], { encoding: 'utf8' }).stdout;
+    assert.ok(JSON.parse(m)._updated, 'manifest written via POSIX shell');
+    spawnSync('wsl.exe', ['-d', WSL, '--', 'rm', '-rf', wdir]);
+  }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
+
   // ---------------- Phase 2/6: persistence after restart ----------------
   await step('P2/P6 configuration and open sessions/layout survive restart (tmux re-attach)', async () => {
     await page.click('#sidebar .proj-name:text("lokal")');

@@ -28,6 +28,7 @@ export function toast(text, { error = false, ms = 3500 } = {}) {
   const t = h('div', { class: 'toast' + (error ? ' error' : '') }, text);
   root.appendChild(t);
   setTimeout(() => t.remove(), ms);
+  return t;
 }
 
 // Modal with body content and buttons. Returns {close}. onOk may return false to keep it open.

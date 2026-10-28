@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = {
   notifications: true,
   fontSize: 13,
   opencodePath: '',
+  skillsDir: '', // empty = <data folder>/skills
   mcp: {
     enabled: true,
     port: 47900,
@@ -48,6 +49,8 @@ const PROJECT_DEFAULTS = {
   agentCommand: 'opencode',
   layout: { mode: 'tabs', active: null },
   openSessions: [], // [{name, command, kind, shared, orchestrator}] restored on start
+  // Coding agent setup: which MCP servers / skills to deploy, to which agents, project or user scope.
+  agentSetup: { scope: 'project', agents: 'auto', mcp: [], skills: [] },
 };
 
 function normalizeProject(p) {
@@ -55,6 +58,7 @@ function normalizeProject(p) {
   out.id = out.id || uid();
   out.defaultSession = { ...PROJECT_DEFAULTS.defaultSession, ...(p.defaultSession || {}) };
   out.layout = { ...PROJECT_DEFAULTS.layout, ...(p.layout || {}) };
+  out.agentSetup = { ...PROJECT_DEFAULTS.agentSetup, ...(p.agentSetup || {}) };
   out.port = Number(out.port) || 22;
   return out;
 }
@@ -80,6 +84,8 @@ function normalize(data) {
     projects: (d.projects || []).map(normalizeProject),
     tokens: d.tokens || [],
     orchestrators: d.orchestrators || [],
+    // MCP servers that can be deployed to coding agents; env/headers are encrypted in `secrets`.
+    mcpLibrary: d.mcpLibrary || [],
   };
 }
 

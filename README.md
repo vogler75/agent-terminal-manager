@@ -106,6 +106,17 @@ Clients that only speak stdio use the bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_T
 
 Access from outside (Claude app, web, voice mode): directly over the internet behind an Nginx reverse proxy with HTTPS, see [docs/nginx.conf](docs/nginx.conf).
 
+## Coding agents: install, MCP servers and skills
+
+**Agents ▾** in the project header installs coding agents and deploys MCP servers and skills to them. Supported: Claude Code, Codex CLI, OpenCode, Antigravity CLI (agy), GitHub Copilot CLI, pi, Gemini CLI, Cursor CLI, Amp and Qwen Code.
+
+- **Install** types the agent's official install command into the active terminal (PowerShell variant for local Windows projects, shell variant for macOS/Linux, SSH and WSL), so you see the output and can answer prompts.
+- **Library** (sidebar): MCP servers (stdio command or HTTP URL; env vars and headers are stored encrypted with the OS keychain) and a skills repository folder with one sub-folder per skill (`<name>/SKILL.md` + files). The folder can be a git clone.
+- **Project editor → Coding agents:** choose the MCP servers and skills for the project, the target agents (all installed, or a selection) and the scope: the project folder (recommended) or the user's home directory.
+- **Deploy MCP & skills (update)** detects the installed agents on the project's machine and writes each agent's own config format (for example `.mcp.json` and `.claude/skills` for Claude Code, `opencode.json` for OpenCode, `~/.codex/config.toml` for Codex). Entries you added yourself are never changed; servers and skills you deselect are removed on the next deploy. What was deployed is recorded in `.agent-terminal-manager/deployed.json`. Run it again after changing the library or pulling the skills repository.
+
+Codex, Copilot and Amp read MCP servers only from the home directory; use the user scope for them (their skills work in both scopes). Every agent is one adapter in `src/main/coding-agents/registry.js` on top of a shared interface (`base.js`); the runner (`deploy.js`) does one read and one write pass over PowerShell or `sh`, with the script sent via stdin.
+
 ## Orchestrators (OpenCode)
 
 Under **Orchestrators** you can create several orchestrators, each with a name, system prompt (templates “Developer + reviewer”, “Watch”), model (`provider/model`, empty = OpenCode default), maximum rounds and the watched sessions picked by checkbox. On start the app launches its own `opencode serve`, registers the app's MCP server with a token valid only for those sessions, and creates an OpenCode session with the system prompt.

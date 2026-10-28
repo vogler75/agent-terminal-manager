@@ -1,6 +1,7 @@
 // Editors and secondary pages: project editor, hosts, orchestrators, MCP tokens, audit log, settings.
 import { h, clear, toast, modal, field, confirmDialog, fmtTime, timeAgo } from './ui.js';
 import { renderMessages, fillStatus } from './chat.js';
+import { projectSetupSection } from './agents.js';
 
 // Editable list of rows (terminals, saved commands, port forwards).
 function rowsEditor(items, cols) {
@@ -25,8 +26,9 @@ function rowsEditor(items, cols) {
   };
 }
 
-export function editProject(ctx, p) {
+export async function editProject(ctx, p) {
   const { S, call } = ctx;
+  const [agentsList, skillsInfo] = await Promise.all([call('agentsList'), call('skillsList').catch(() => ({ skills: [] }))]);
   const isNew = !p;
   p = p ? structuredClone(p) : { type: 'local', tmux: S.platform !== 'win32', keepAlive: true, defaultSession: { name: 'shell', command: '', kind: 'terminal' }, terminals: [], commands: [], forwards: [], port: 22 };
   const I = (k, attrs = {}) => h('input', { value: p[k] ?? '', ...attrs });
@@ -52,6 +54,7 @@ export function editProject(ctx, p) {
   const cmds = rowsEditor(p.commands, [{ key: 'name', placeholder: 'Name, e.g. Start agent', small: false }, { key: 'command', placeholder: 'Command, e.g. claude --continue' }]);
   const fwds = rowsEditor(p.forwards, [{ key: 'local', placeholder: 'local', small: true, type: 'number' }, { key: 'remote', placeholder: 'remote', small: true, type: 'number' }, { key: 'remoteHost', placeholder: 'Target host (default localhost)' }]);
 
+  const agentSection = projectSetupSection(ctx, p, agentsList, skillsInfo.skills);
   const sshOnly = [];
   const inlineOnly = [];
   const wslOnly = [];
@@ -79,7 +82,8 @@ export function editProject(ctx, p) {
     h('h3', { class: 'full' }, 'Saved commands'),
     h('div', { class: 'full' }, cmds.el),
     grp(sshOnly, h('h3', { class: 'full' }, 'Port forwarding (local port → remote port)')),
-    grp(sshOnly, h('div', { class: 'full' }, fwds.el)));
+    grp(sshOnly, h('div', { class: 'full' }, fwds.el)),
+    agentSection.elements);
 
   const sync = () => {
     const t = type.value;
@@ -122,6 +126,7 @@ export function editProject(ctx, p) {
         terminals: terms.get().map((t) => ({ ...t, name: t.name || 'term' })),
         commands: cmds.get().filter((c) => c.name && c.command),
         forwards: fwds.get().filter((f) => f.local && f.remote),
+        agentSetup: agentSection.get(),
       };
       const saved = await call('saveProject', out);
       ctx.S.projectId = saved.id;
@@ -177,18 +182,16 @@ export function renderHostsTable(ctx) {
     })));
 }
 
-function quickProject(ctx, host) {
-  editProject(ctx, null);
+async function quickProject(ctx, host) {
+  await editProject(ctx, null);
   // Preselect SSH + host in the freshly opened editor.
-  setTimeout(() => {
-    const m = document.querySelector('.modal');
-    if (!m) return;
-    const selects = m.querySelectorAll('select');
-    selects[0].value = 'ssh';
-    selects[0].dispatchEvent(new Event('change'));
-    selects[1].value = host.id;
-    selects[1].dispatchEvent(new Event('change'));
-  }, 20);
+  const m = document.querySelector('.modal');
+  if (!m) return;
+  const selects = m.querySelectorAll('select');
+  selects[0].value = 'ssh';
+  selects[0].dispatchEvent(new Event('change'));
+  selects[1].value = host.id;
+  selects[1].dispatchEvent(new Event('change'));
 }
 
 function editHost(ctx, host) {
