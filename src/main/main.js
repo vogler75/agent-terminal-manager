@@ -340,6 +340,14 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('closed', () => { win = null; });
+  // If the renderer dies, sessions keep running in this process: log why and reload the window,
+  // which restores all terminals from the main-process mirror.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[atm] renderer gone:', JSON.stringify(details));
+    if (audit) audit.add({ source: 'app', action: 'renderer.crash', detail: JSON.stringify(details) });
+    if (details.reason !== 'clean-exit' && win && !win.isDestroyed()) setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 500);
+  });
+  win.webContents.on('unresponsive', () => console.error('[atm] renderer unresponsive'));
   // Links clicked in terminals open in the system browser.
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
