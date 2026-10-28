@@ -46,7 +46,8 @@ export function modal({ title, body, okText = 'Save', onOk, cancelText = 'Cancel
     if (e.key === 'Escape') { e.stopPropagation(); close(); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); ok(); }
   };
-  const bg = h('div', { class: 'modal-bg', onmousedown: (e) => { if (e.target === bg) close(); } },
+  // A click on the backdrop does not close the dialog, so typed input is not lost by accident.
+  const bg = h('div', { class: 'modal-bg' },
     h('div', { class: 'modal', style: width ? { width } : null },
       h('div', { class: 'modal-head' }, title),
       h('div', { class: 'modal-body' }, body),

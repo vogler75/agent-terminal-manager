@@ -124,6 +124,10 @@ const cfgBase = () => {
     await page.click('text=+ Project');
     const modal = page.locator('.modal');
     await modal.locator('input').first().fill('ui-projekt');
+    // An accidental click outside the dialog must not close it.
+    await page.mouse.click(5, 5);
+    assert.ok(await modal.isVisible(), 'dialog stays open after clicking the backdrop');
+    assert.strictEqual(await modal.locator('input').first().inputValue(), 'ui-projekt');
     await modal.locator('select').first().selectOption('ssh');
     await modal.locator('input[placeholder="hostname or IP"]').fill('example.invalid');
     await modal.locator('input[placeholder="user"]').fill('bob');
