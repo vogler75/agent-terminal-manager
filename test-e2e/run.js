@@ -307,10 +307,11 @@ const cfgBase = () => {
     const b64 = Buffer.from(perl).toString('base64');
     sshRun(`echo ${b64} | base64 -d > /tmp/atm-e2e-http-${RUN}.pl && tmux new-session -d -s atm-e2e-http-${RUN} "perl /tmp/atm-e2e-http-${RUN}.pl ${rp}"`);
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
-    const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 }).catch((e) => {
-      const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t atm-e2e-http-${RUN} 2>&1 | tail -5`);
+    const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 }).catch(async (e) => {
+      const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t atm-e2e-http-${RUN} 2>&1 | tail -5; tail -8 ~/sshd/log 2>/dev/null`);
+      const direct = await fetch(`http://127.0.0.1:${lp}/`).then((r) => r.status, (x) => String(x.cause || x));
       const fwd = JSON.stringify(require('child_process').spawnSync('lsof', ['-iTCP:' + lp, '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout || '');
-      throw new Error(`${e.message}\n   remote: ${diag.trim()}\n   local listener: ${fwd}`);
+      throw new Error(`${e.message}\n   remote: ${diag.trim()}\n   local listener: ${fwd}\n   fetch: ${direct}`);
     });
     assert.match(body, /Directory listing|<html/i);
     sshRun(`tmux kill-session -t atm-e2e-http-${RUN}`);
@@ -518,9 +519,11 @@ const cfgBase = () => {
     await page.click('#sidebar .sess:has-text("oc")');
     await page.fill('.chat-input textarea', 'Reply with exactly the word PONG and nothing else. Do not use tools.');
     await page.keyboard.press('Enter');
-    await waitFor(async () => (await m.status(ids.agent)) === 'working', { msg: 'agent working', timeout: 20000 });
-    await waitFor(async () => (await m.status(ids.agent)) === 'waiting', { msg: 'agent done', timeout: 180000 });
-    const out = await callTool(client, 'read_output', { session: 'lokal/oc' });
+    // A fast model can go working → waiting between two polls, so wait for the answer itself.
+    const out = await waitFor(async () => {
+      const r = await callTool(client, 'read_output', { session: 'lokal/oc' });
+      return r.status === 'waiting' && r.messages.some((x) => x.role === 'assistant' && x.text) ? r : null;
+    }, { msg: 'agent answered', timeout: 180000 });
     assert.ok(out.messages.some((x) => x.role === 'assistant' && /PONG/i.test(x.text)), 'assistant answered PONG: ' + JSON.stringify(out.messages).slice(0, 500));
     await page.waitForSelector('.chat-log .msg.assistant');
     await shot('agent-session');
