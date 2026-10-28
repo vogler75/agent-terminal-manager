@@ -11,6 +11,8 @@ npm install
 npm start
 ```
 
+On Windows, `build.bat` does all steps (installs dependencies if needed): `build.bat` builds the installer, portable exe and unpacked app, `build.bat dir` only the unpacked app, `build.bat test` runs the unit tests first.
+
 Build packages (`release/`):
 
 ```bash
