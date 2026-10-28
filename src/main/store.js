@@ -173,6 +173,17 @@ class Store extends EventEmitter {
     this.data.projects = this.data.projects.filter((p) => p.id !== id);
     this.save();
   }
+  // Moves a project before another one (or to the end when beforeId is empty).
+  moveProjectTo(id, beforeId) {
+    const arr = this.data.projects;
+    const i = arr.findIndex((p) => p.id === id);
+    if (i < 0 || id === beforeId) return;
+    const [p] = arr.splice(i, 1);
+    const j = beforeId ? arr.findIndex((x) => x.id === beforeId) : -1;
+    if (j < 0) arr.push(p); else arr.splice(j, 0, p);
+    this.save();
+  }
+
   moveProject(id, delta) {
     const i = this.data.projects.findIndex((p) => p.id === id);
     const j = i + delta;

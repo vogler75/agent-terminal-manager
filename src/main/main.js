@@ -74,6 +74,7 @@ function setup() {
   sessions.on('opened', (s) => send('session:opened', s.info()));
   sessions.on('closed', (s) => send('session:closed', { id: s.id, projectId: s.projectId }));
   sessions.on('updated', (s) => send('session:updated', s.info()));
+  sessions.on('reordered', (projectId, ids) => send('sessions:reordered', { projectId, ids }));
   sessions.on('exit', (s) => send('session:updated', s.info()));
   sessions.on('agent-messages', (s, messages) => send('agent:messages', { id: s.id, messages }));
   sessions.on('agent-live', (s, text) => send('agent:live', { id: s.id, text }));
@@ -151,6 +152,9 @@ const api = {
     store.deleteProject(id);
   },
   moveProject: (id, delta) => store.moveProject(id, delta),
+  moveProjectTo: (id, beforeId) => store.moveProjectTo(id, beforeId),
+  moveSessionTo: (id, beforeId) => sessions.moveSessionTo(id, beforeId),
+  moveSession: (id, delta) => sessions.moveSession(id, delta),
   setLayout: (id, layout) => { const p = store.getProject(id); if (p) { p.layout = { ...p.layout, ...layout }; store.save(); } },
 
   // hosts

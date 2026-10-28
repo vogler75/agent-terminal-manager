@@ -366,6 +366,37 @@ class SessionManager extends EventEmitter {
     return projectId ? all.filter((s) => s.projectId === projectId) : all;
   }
 
+  // Moves a session before another session of the same project (or to the end of the project).
+  // The session map is rebuilt in the new order; it defines tabs, tree and the restored order.
+  moveSessionTo(id, beforeId) {
+    const s = this.get(id);
+    if (!s || id === beforeId) return;
+    const before = beforeId ? this.get(beforeId) : null;
+    if (before && before.projectId !== s.projectId) throw new Error('Sessions can only be moved within their project');
+    const list = [...this.sessions.values()].filter((x) => x !== s);
+    let idx = before ? list.indexOf(before) : -1;
+    if (idx < 0) {
+      // end of the project: after its last session
+      const lastOfProject = list.map((x, i) => (x.projectId === s.projectId ? i : -1)).filter((i) => i >= 0).pop();
+      idx = lastOfProject === undefined ? list.length : lastOfProject + 1;
+    }
+    list.splice(idx, 0, s);
+    this.sessions = new Map(list.map((x) => [x.id, x]));
+    this.persistOpen(s.projectId);
+    this.emit('reordered', s.projectId, this.list(s.projectId).map((x) => x.id));
+  }
+
+  moveSession(id, delta) {
+    const s = this.get(id);
+    if (!s) return;
+    const ids = this.list(s.projectId).map((x) => x.id);
+    const i = ids.indexOf(id);
+    const j = i + delta;
+    if (j < 0 || j >= ids.length) return;
+    if (delta < 0) this.moveSessionTo(id, ids[j]);
+    else this.moveSessionTo(id, ids[j + 1] || null);
+  }
+
   rename(id, name) {
     const s = this.get(id);
     if (!s || !name) return;

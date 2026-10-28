@@ -266,6 +266,36 @@ const cfgBase = () => {
     assert.ok(text.includes('before-switch-' + RUN) && text.includes('while-hidden-' + RUN), 'renderer buffer has both lines');
   });
 
+  await step('Sidebar: reorder projects and sessions by drag & drop (kept in config and tabs)', async () => {
+    await app.evaluate(() => { for (const [id, name] of [['p-ord1', 'ord-a'], ['p-ord2', 'ord-b']]) globalThis.__atm.store.saveProject({ id, name, type: 'local', tmux: false }); });
+    await page.waitForSelector('#sidebar .proj-name:text("ord-b")');
+    const order = () => app.evaluate(() => globalThis.__atm.store.data.projects.map((p) => p.name));
+    const before = await order();
+    // Drag "ord-b" onto the upper half of the first project -> it becomes first.
+    const first = page.locator('#sidebar .proj-head').first();
+    const box = await first.boundingBox();
+    await page.locator('#sidebar .proj-head:has(.proj-name:text("ord-b"))').dragTo(first, { targetPosition: { x: 20, y: 3 } });
+    await waitFor(async () => (await order())[0] === 'ord-b', { msg: 'project moved to the top' });
+    assert.strictEqual((await order()).length, before.length);
+    assert.ok(box);
+    // Sessions of "lokal": drag the last one above the first.
+    const sessOrder = () => app.evaluate(() => globalThis.__atm.sessions.list('p-local').map((s) => s.name));
+    const s0 = await sessOrder();
+    const lastName = s0[s0.length - 1];
+    const firstRow = page.locator('#sidebar .proj:has(.proj-name:text("lokal")) .sess').first();
+    await page.locator(`#sidebar .proj:has(.proj-name:text("lokal")) .sess:has(.sess-name:text-is("${lastName}"))`).dragTo(firstRow, { targetPosition: { x: 40, y: 2 } });
+    await waitFor(async () => (await sessOrder())[0] === lastName, { msg: 'session moved to the top' });
+    const saved = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').openSessions.map((s) => s.name));
+    assert.deepStrictEqual(saved, await sessOrder(), 'order saved for restart');
+    await page.click('#sidebar .proj-name:text("lokal")');
+    await waitFor(async () => (await page.$$eval('.tabs .tab', (t) => t.map((x) => x.textContent.replace('×', '').trim())))[0] === lastName, { msg: 'tabs follow the order' });
+    // Context menu: Move down
+    await page.click(`#sidebar .proj:has(.proj-name:text("lokal")) .sess:has(.sess-name:text-is("${lastName}"))`, { button: 'right' });
+    await page.click('.menu div:text("Move down")');
+    await waitFor(async () => (await sessOrder())[1] === lastName, { msg: 'moved down by menu' });
+    await app.evaluate(() => { globalThis.__atm.store.deleteProject('p-ord1'); globalThis.__atm.store.deleteProject('p-ord2'); });
+  });
+
   await step('P3 rename and close sessions in the tree', async () => {
     await page.dblclick(`#sidebar .sess:has-text("rev")`);
     await page.locator('.modal input').fill('reviewer');

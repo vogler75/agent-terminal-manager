@@ -140,6 +140,7 @@ function renderSidebar() {
     const host = p.hostId ? S.config.hosts.find((x) => x.id === p.hostId) : null;
     const head = h('div', {
       class: 'proj-head',
+      ...dragProps({ type: 'project', id: p.id }),
       title: `${p.type.toUpperCase()}${host ? ' · ' + host.name : p.host ? ' · ' + p.host : ''}${p.directory ? ' · ' + p.directory : ''}  (Ctrl+${idx + 1})`,
       onclick: () => { S.projectId = p.id; S.view = 'project'; render(); focusActive(); },
       oncontextmenu: (e) => { e.preventDefault(); projectMenu(e, p); },
@@ -158,6 +159,7 @@ function renderSidebar() {
         const isActive = selected && activeSessionId(p.id) === s.id;
         node.appendChild(h('div', {
           class: 'sess' + (isActive ? ' active' : ''),
+          ...dragProps({ type: 'session', id: s.id, projectId: p.id }),
           title: `${s.name} — ${STATUS_LABEL[s.status] || s.status}${s.command ? ' — ' + s.command : ''}`,
           onclick: () => selectSession(s.id),
           ondblclick: () => renameSession(s.id),
@@ -188,6 +190,47 @@ function renderSidebar() {
     navBtn('settings', 'Settings')));
 }
 
+// Drag & drop in the sidebar: projects among projects, sessions within their project.
+// The drop target shows a line above or below itself; dropping moves the item there.
+let drag = null;
+function dragProps(item) {
+  const accepts = () => drag && drag.type === item.type && drag.id !== item.id && (item.type === 'project' || drag.projectId === item.projectId);
+  const clearMarks = () => document.querySelectorAll('.drop-before, .drop-after').forEach((x) => x.classList.remove('drop-before', 'drop-after'));
+  const below = (e) => { const r = e.currentTarget.getBoundingClientRect(); return e.clientY > r.top + r.height / 2; };
+  return {
+    draggable: 'true',
+    ondragstart: (e) => { drag = item; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.id); e.currentTarget.classList.add('dragging'); e.stopPropagation(); },
+    ondragend: (e) => { drag = null; e.currentTarget.classList.remove('dragging'); clearMarks(); },
+    ondragover: (e) => {
+      if (!accepts()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      clearMarks();
+      e.currentTarget.classList.add(below(e) ? 'drop-after' : 'drop-before');
+    },
+    ondragleave: (e) => e.currentTarget.classList.remove('drop-before', 'drop-after'),
+    ondrop: (e) => {
+      if (!accepts()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const after = below(e);
+      clearMarks();
+      const src = drag;
+      drag = null;
+      if (src.type === 'project') {
+        const ids = S.config.projects.map((x) => x.id).filter((x) => x !== src.id);
+        const i = ids.indexOf(item.id);
+        call('moveProjectTo', src.id, after ? ids[i + 1] || null : item.id);
+      } else {
+        const ids = projectSessions(item.projectId).map((x) => x.id).filter((x) => x !== src.id);
+        const i = ids.indexOf(item.id);
+        call('moveSessionTo', src.id, after ? ids[i + 1] || null : item.id);
+      }
+    },
+  };
+}
+
 function projectMenu(e, p) {
   contextMenu(e.clientX, e.clientY, [
     { label: 'New session', action: () => openSession(p.id) },
@@ -210,6 +253,8 @@ function projectMenu(e, p) {
 function sessionMenu(e, s) {
   contextMenu(e.clientX, e.clientY, [
     { label: 'Rename…', action: () => renameSession(s.id) },
+    { label: 'Move up', action: () => call('moveSession', s.id, -1) },
+    { label: 'Move down', action: () => call('moveSession', s.id, 1) },
     { label: s.shared ? '✓ Shared with MCP' : 'Share with MCP', action: () => call('setSessionFlags', s.id, { shared: !s.shared }) },
     { label: s.orchestrator ? '✓ Orchestrator session' : 'Mark as orchestrator', action: () => call('setSessionFlags', s.id, { orchestrator: !s.orchestrator }) },
     { label: 'Reconnect', action: () => call('reconnect', s.id) },
@@ -522,6 +567,14 @@ document.addEventListener('keydown', (e) => {
 const on = window.atm.on;
 on('session:data', ({ id, data }) => { termFor(id).write(data); });
 on('session:opened', (info) => { S.sessions.set(info.id, info); renderSoon(); });
+on('sessions:reordered', ({ projectId, ids }) => {
+  // Rebuild the local session order: the project's sessions in the new order, others unchanged.
+  const all = [...S.sessions.values()];
+  const moved = ids.map((id) => S.sessions.get(id)).filter(Boolean);
+  let k = 0;
+  S.sessions = new Map(all.map((s) => (s.projectId === projectId ? moved[k++] : s)).filter(Boolean).map((s) => [s.id, s]));
+  renderSoon();
+});
 on('session:closed', ({ id }) => {
   S.sessions.delete(id);
   const t = terms.get(id);

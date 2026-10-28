@@ -60,7 +60,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .proj-actions { display: none; gap: 0; }
 .proj-head:hover .proj-actions, .proj.selected .proj-actions { display: flex; }
 .caret { width: 12px; color: var(--fg3); font-size: 10px; }
-.sess { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 30px; border-radius: var(--radius); cursor: pointer; color: var(--fg2); }
+.sess { display: flex; align-items: center; gap: 6px; padding: 3px 6px 3px 42px; border-radius: var(--radius); cursor: pointer; color: var(--fg2); }
 .sess:hover { background: var(--bg3); }
 .sess.active { background: var(--bg3); color: var(--fg); }
 .sess-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -221,3 +221,10 @@ table.list tr:hover td { background: var(--bg2); }
 .status-select { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg3); }
 .status-select select { width: auto; padding: 1px 4px; font-size: 12px; background: var(--bg2); }
 .usage { font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; }
+
+/* sidebar drag & drop */
+.proj-head, .sess { position: relative; }
+.dragging { opacity: .45; }
+.drop-before::before, .drop-after::after { content: ''; position: absolute; left: 6px; right: 6px; height: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; }
+.drop-before::before { top: -1px; }
+.drop-after::after { bottom: -1px; }
