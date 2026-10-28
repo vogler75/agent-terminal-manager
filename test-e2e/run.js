@@ -75,9 +75,9 @@ const cfgBase = () => {
   const hosts = [];
   if (SSH) {
     hosts.push({ id: 'h1', name: 'devbox', hostname: SSH.hostname, port: SSH.port, user: SSH.user, workspace: `~/atm-e2e-${RUN}`, tags: ['test'] });
-    projects.push({ id: 'p-ssh', name: 'remote', type: 'ssh', hostId: 'h1', directory: `~/atm-e2e-${RUN}/proj1`, tmux: true, keepAlive: true, thresholdSec: 2, forwards: [{ local: MCP_PORT + 900, remote: MCP_PORT + 901 }] });
+    projects.push({ id: 'p-ssh', name: `remote-${RUN}`, type: 'ssh', hostId: 'h1', directory: `~/atm-e2e-${RUN}/proj1`, tmux: true, keepAlive: true, thresholdSec: 2, forwards: [{ local: MCP_PORT + 900, remote: MCP_PORT + 901 }] });
   }
-  if (WSL) projects.push({ id: 'p-wsl', name: 'wsl', type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: true, thresholdSec: 2 });
+  if (WSL) projects.push({ id: 'p-wsl', name: `wsl-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: true, thresholdSec: 2 });
   return { settings: { mcp: { enabled: true, port: MCP_PORT, bind: '127.0.0.1', allowCreateProject: true, allowCreateDirectory: true, allowRunCommand: true }, notifications: true }, hosts, projects };
 };
 
@@ -259,7 +259,7 @@ const cfgBase = () => {
     ids.ssh = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-ssh')?.id, { msg: 'ssh session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.ssh)) || ''), { msg: 'remote prompt', timeout: 25000 });
     await m.send(ids.ssh, 'pwd; tmux display -p "tmux:#S"');
-    await waitFor(async () => { const o = await m.output(ids.ssh); return o.includes(`/atm-e2e-${RUN}/proj1`) && o.includes('tmux:atm-remote-shell'); }, { msg: 'pwd + tmux name' });
+    await waitFor(async () => { const o = await m.output(ids.ssh); return o.includes(`/atm-e2e-${RUN}/proj1`) && o.includes(`tmux:atm-remote-${RUN}-shell`); }, { msg: 'pwd + tmux name' });
     await shot('p3-ssh');
   }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
 
@@ -286,7 +286,7 @@ const cfgBase = () => {
       return Math.max(...nums) > before + 3;
     }, { msg: 'ticks continued while disconnected', timeout: 20000 });
     const remote = sshRun('tmux ls');
-    assert.match(remote, /atm-remote-shell/);
+    assert.ok(remote.includes(`atm-remote-${RUN}-shell`), remote);
   }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
 
   await step('Open point: automatic reconnect after a dropped connection', async () => {
@@ -335,7 +335,7 @@ const cfgBase = () => {
     ids.wsl = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-wsl')?.id, { msg: 'wsl session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.wsl)) || ''), { msg: 'wsl prompt', timeout: 25000 });
     await m.send(ids.wsl, 'pwd; tmux display -p "tmux:#S"');
-    await waitFor(async () => { const o = await m.output(ids.wsl); return /^\/tmp$/m.test(o) && o.includes('tmux:atm-wsl-shell'); }, { msg: 'pwd /tmp in tmux' });
+    await waitFor(async () => { const o = await m.output(ids.wsl); return /^\/tmp$/m.test(o) && o.includes(`tmux:atm-wsl-${RUN}-shell`); }, { msg: 'pwd /tmp in tmux' });
   }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
 
   // ---------------- Phase 7: MCP ----------------
@@ -424,9 +424,9 @@ const cfgBase = () => {
       const d = await callTool(client, 'create_directory', { host: 'devbox', path: 'neu/projekt' });
       assert.match(d.absolute, new RegExp(`atm-e2e-${RUN}/neu/projekt$`));
       await assert.rejects(callTool(client, 'create_directory', { host: 'devbox', path: '../x' }));
-      const cp = await callTool(client, 'create_project', { name: 'mcp-proj', host: 'devbox', directory: `~/atm-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp; pwd' });
-      assert.strictEqual(cp.project.name, 'mcp-proj');
-      await waitFor(async () => { const o = await callTool(client, 'read_output', { session: 'mcp-proj/shell', lines: 40 }); return o.output.includes('started-by-mcp') && o.output.includes('neu/projekt'); }, { msg: 'mcp project session ran start command', timeout: 25000 }).catch(async (e) => { throw e; });
+      const cp = await callTool(client, 'create_project', { name: `mcp-proj-${RUN}`, host: 'devbox', directory: `~/atm-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp; pwd' });
+      assert.strictEqual(cp.project.name, `mcp-proj-${RUN}`);
+      await waitFor(async () => { const o = await callTool(client, 'read_output', { session: `mcp-proj-${RUN}/shell`, lines: 40 }); return o.output.includes('started-by-mcp') && o.output.includes('neu/projekt'); }, { msg: 'mcp project session ran start command', timeout: 25000 }).catch(async (e) => { throw e; });
     }
   });
 
@@ -802,7 +802,8 @@ const cfgBase = () => {
     await sleep(1500);
     await app.close();
   } catch {}
-  if (SSH) sshRun(`tmux ls 2>/dev/null | grep -o '^atm-[^:]*' | xargs -r -n1 tmux kill-session -t; rm -rf ~/atm-e2e-${RUN}`);
+  // Only remove what this run created: tmux sessions carry the run id in their name.
+  if (SSH) sshRun(`tmux ls -F '#S' 2>/dev/null | grep -- '-${RUN}-' | xargs -r -n1 tmux kill-session -t; rm -rf ~/atm-e2e-${RUN}`);
 
   const failed = results.filter((r) => r.status === 'fail');
   const passed = results.filter((r) => r.status === 'pass');
