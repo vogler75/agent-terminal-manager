@@ -11,7 +11,7 @@ const { launch, sleep } = require('./launch');
   });
   await page.setViewportSize({ width: 1300, height: 800 }).catch(() => {});
   await page.screenshot({ path: path.join(shots, '1-start.png') });
-  await page.click('text=+ Session öffnen');
+  await page.click('text=+ Open session');
   await sleep(2500);
   await page.keyboard.type('echo hello-from-atm');
   await page.keyboard.press('Enter');

@@ -97,7 +97,7 @@ const cfgBase = () => {
 
   await step('P1 local shell starts and runs commands', async () => {
     await page.click('#sidebar .proj-name:text("lokal")');
-    await page.click('text=+ Session öffnen');
+    await page.click('text=+ Open session');
     ids.local = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-local')?.id, { msg: 'session' });
     await waitFor(async () => /PS |\$ |% /.test((await m.output(ids.local)) || ''), { msg: 'prompt', timeout: 20000 });
     await page.keyboard.type('echo hello-atm-' + RUN);
@@ -121,23 +121,23 @@ const cfgBase = () => {
 
   // ---------------- Phase 2 ----------------
   await step('P2 create, edit and delete a project in the UI; saved as JSON', async () => {
-    await page.click('text=+ Projekt');
+    await page.click('text=+ Project');
     const modal = page.locator('.modal');
     await modal.locator('input').first().fill('ui-projekt');
     await modal.locator('select').first().selectOption('ssh');
-    await modal.locator('input[placeholder="hostname oder IP"]').fill('example.invalid');
-    await modal.locator('input[placeholder="Benutzer"]').fill('bob');
+    await modal.locator('input[placeholder="hostname or IP"]').fill('example.invalid');
+    await modal.locator('input[placeholder="user"]').fill('bob');
     await modal.locator('button.primary').click();
     await page.waitForSelector('#sidebar .proj-name:text("ui-projekt")');
     const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     await waitFor(() => JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).projects.some((p) => p.name === 'ui-projekt' && p.user === 'bob'), { msg: 'saved json' });
     // edit
-    await page.click('#main .main-head button.icon[title="Projekt bearbeiten"]');
+    await page.click('#main .main-head button.icon[title="Edit project"]');
     await page.locator('.modal input').first().fill('ui-projekt-2');
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('#sidebar .proj-name:text("ui-projekt-2")');
     // delete
-    await page.click('#main .main-head button.icon[title="Projekt bearbeiten"]');
+    await page.click('#main .main-head button.icon[title="Edit project"]');
     await page.locator('.modal button.danger').click();
     await page.locator('.modal button.primary').last().click();
     await waitFor(async () => !(await page.isVisible('#sidebar .proj-name:text("ui-projekt-2")')), { msg: 'deleted' });
@@ -168,7 +168,7 @@ const cfgBase = () => {
 
   await step('P5 BEL sets status to waiting immediately; desktop notification', async () => {
     await app.evaluate(() => { globalThis.__atm.store.getProject('p-local').thresholdSec = 30; });
-    await page.click('#sidebar button:has-text("Übersicht")'); // not focused on the session -> notification expected
+    await page.click('#sidebar button:has-text("Overview")'); // not focused on the session -> notification expected
     const n0 = await app.evaluate(() => globalThis.__atm.notificationLog.length);
     await m.send(ids.local, IS_WIN ? 'Start-Sleep 1; Write-Host "bell$([char]7)"' : 'sleep 1; printf "bell\\a\\n"');
     await waitFor(async () => (await m.status(ids.local)) === 'working', { msg: 'working', timeout: 5000 });
@@ -177,7 +177,7 @@ const cfgBase = () => {
     assert.ok(Date.now() - t < 6000, 'waiting much earlier than threshold 30 s');
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.notificationLog.length)) > n0, { msg: 'notification' });
     const last = await app.evaluate(() => globalThis.__atm.notificationLog.slice(-1)[0]);
-    assert.match(last.body, /bell|wartet|waiting/i);
+    assert.match(last.body, /bell|waiting/i);
     await app.evaluate(() => { globalThis.__atm.store.getProject('p-local').thresholdSec = 2; });
   });
 
@@ -190,15 +190,15 @@ const cfgBase = () => {
 
   // ---------------- Phase 4 ----------------
   await step('P4 tabs, tiles (2/3/4) and click back to single view', async () => {
-    await page.click('#main button:has-text("▶ Alle")');
+    await page.click('#main button:has-text("▶ All")');
     await waitFor(async () => (await m.sessions()).filter((s) => s.projectId === 'p-local').length === 3, { msg: '3 sessions' });
     await page.waitForSelector('.tabs .tab >> nth=2');
-    await page.click('#main .main-head button:has-text("Kacheln")');
+    await page.click('#main .main-head button:has-text("Tiles")');
     await page.waitForSelector('.grid .tile >> nth=2');
     let cols = await page.$eval('.grid', (g) => getComputedStyle(g).gridTemplateColumns.split(' ').length);
     assert.strictEqual(cols, 3, '3 sessions -> 3 columns');
     await shot('p4-tiles-3');
-    await page.click('#main .main-head button:has-text("3 Spalten")');
+    await page.click('#main .main-head button:has-text("3 columns")');
     await waitFor(async () => /1 \/ 3/.test(await page.$eval('.grid .tile', (t) => t.style.gridRow)), { msg: 'one big + two small' });
     await shot('p4-tiles-1plus2');
     ids.extra = (await m.open('p-local', {})).id;
@@ -212,7 +212,7 @@ const cfgBase = () => {
   });
 
   await step('P4 overview groups per project; scaling via font size; click opens session', async () => {
-    await page.click('#sidebar button:has-text("Übersicht")');
+    await page.click('#sidebar button:has-text("Overview")');
     await page.waitForSelector('.ov-group');
     const groups = await page.$$eval('.ov-group .ov-head', (els) => els.map((e) => e.textContent));
     assert.ok(groups.some((g) => g.includes('lokal')));
@@ -250,7 +250,7 @@ const cfgBase = () => {
   // ---------------- Phase 3 / 0: SSH + tmux ----------------
   await step('P0/P3 SSH session connects and lands in configured directory', async () => {
     await page.click('#sidebar .proj-name:text("remote")');
-    await page.click('text=+ Session öffnen');
+    await page.click('text=+ Open session');
     ids.ssh = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-ssh')?.id, { msg: 'ssh session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.ssh)) || ''), { msg: 'remote prompt', timeout: 25000 });
     await m.send(ids.ssh, 'pwd; tmux display -p "tmux:#S"');
@@ -271,11 +271,11 @@ const cfgBase = () => {
     // Simulate a lost connection: kill the local ssh process.
     await app.evaluate((_e, id) => { globalThis.__atm.sessions.get(id).pty.kill(); }, ids.ssh);
     await waitFor(async () => ['error', 'exited'].includes(await m.status(ids.ssh)), { msg: 'disconnected status' });
-    await page.waitForSelector('.overlay-err button:has-text("Neu verbinden")', { timeout: 8000 });
+    await page.waitForSelector('.overlay-err button:has-text("Reconnect")', { timeout: 8000 });
     await shot('p3-disconnected');
     const before = Math.max(...(await m.output(ids.ssh, 200)).match(/tick-(\d+)/g).map((x) => Number(x.slice(5))));
     await sleep(2500);
-    await page.click('.overlay-err button:has-text("Neu verbinden")');
+    await page.click('.overlay-err button:has-text("Reconnect")');
     await waitFor(async () => {
       const nums = ((await m.output(ids.ssh, 200)).match(/tick-(\d+)/g) || []).map((x) => Number(x.slice(5)));
       return Math.max(...nums) > before + 3;
@@ -306,7 +306,7 @@ const cfgBase = () => {
   await step('P3 connection errors are shown with reconnect button', async () => {
     const p = await app.evaluate(() => globalThis.__atm.store.saveProject({ id: 'p-bad', name: 'kaputt', type: 'ssh', host: '127.0.0.1', port: 1, tmux: false, keepAlive: false }));
     await page.click('#sidebar .proj-name:text("kaputt")');
-    await page.click('text=+ Session öffnen');
+    await page.click('text=+ Open session');
     await page.waitForSelector('.overlay-err', { timeout: 15000 });
     const msg = await page.textContent('.overlay-err .msg');
     assert.match(msg, /exit code|Connection/i);
@@ -317,7 +317,7 @@ const cfgBase = () => {
 
   await step('P3 WSL session starts in distribution and directory (tmux)', async () => {
     await page.click('#sidebar .proj-name:text("wsl")');
-    await page.click('text=+ Session öffnen');
+    await page.click('text=+ Open session');
     ids.wsl = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-wsl')?.id, { msg: 'wsl session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.wsl)) || ''), { msg: 'wsl prompt', timeout: 25000 });
     await m.send(ids.wsl, 'pwd; tmux display -p "tmux:#S"');
@@ -348,13 +348,13 @@ const cfgBase = () => {
 
   await step('P7 tokens can be created in the UI (shown once)', async () => {
     await page.click('#sidebar button:has-text("MCP")');
-    await page.click('button:has-text("+ Token (voll)")');
+    await page.click('button:has-text("+ Token (full)")');
     await page.locator('.modal input').fill('e2e');
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('.modal .secret');
     token = (await page.textContent('.modal .secret')).trim();
     assert.match(token, /^atm_/);
-    await page.getByRole('button', { name: 'Schließen', exact: true }).click();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
     await shot('p7-mcp');
     roToken = (await page.evaluate(() => window.atm.call('createToken', { name: 'ro', readOnly: true }))).secret;
     client = await connect(token);
@@ -488,7 +488,7 @@ const cfgBase = () => {
   });
 
   await step('P7 all MCP actions are logged and visible in the app', async () => {
-    await page.click('#sidebar button:has-text("Protokoll")');
+    await page.click('#sidebar button:has-text("Audit log")');
     await page.waitForSelector('#audit-body tr');
     const txt = await page.textContent('#audit-body');
     for (const a of ['send_to_session', 'wait_until_idle', 'read_output', 'auth.denied', 'token.revoke']) assert.ok(txt.includes(a), 'audit contains ' + a);
@@ -519,17 +519,17 @@ const cfgBase = () => {
     const o1 = await page.evaluate((w) => window.atm.call('orchSave', { name: 'O1', watched: w, maxRounds: 2, systemPrompt: 'You are a test orchestrator. Follow user instructions exactly. Use the atm MCP tools. Keep answers very short.' }), [devKey, revKey]);
     await assert.rejects(page.evaluate((w) => window.atm.call('orchSave', { name: 'O2', watched: w }), [devKey]), /already controlled/);
     const o2 = await page.evaluate(() => window.atm.call('orchSave', { name: 'O2', watched: [] }));
-    await page.click('#sidebar button:has-text("Orchestratoren")');
+    await page.click('#sidebar button:has-text("Orchestrators")');
     await page.click('#main .main-head button:has-text("O1")');
     await page.click('button:has-text("▶ Start")');
     await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'idle', { msg: 'orchestrator idle', timeout: 60000 });
     // Task via UI input: orchestrator must use send_to_session + wait_until_idle + read_output.
-    await page.fill('#orch-content textarea', `Use the atm tool send_to_session to send the text "echo ORCH_${RUN}" to session "lokal/dev". Then call wait_until_idle for "lokal/dev" and read_output. Finally answer with the word FERTIG.`);
+    await page.fill('#orch-content textarea', `Use the atm tool send_to_session to send the text "echo ORCH_${RUN}" to session "lokal/dev". Then call wait_until_idle for "lokal/dev" and read_output. Finally answer with the word DONE.`);
     await page.keyboard.press('Enter');
     await waitFor(async () => (await m.output(ids.dev, 80)).includes(`ORCH_${RUN}`), { msg: 'orchestrator sent command to dev', timeout: 180000 });
     await waitFor(async () => {
       const msgs = await page.evaluate((id) => window.atm.call('orchMessages', id), o1.id);
-      return msgs.some((x) => x.role === 'assistant' && /FERTIG/i.test(x.text));
+      return msgs.some((x) => x.role === 'assistant' && /DONE/i.test(x.text));
     }, { msg: 'orchestrator answered', timeout: 240000 });
     await shot('p8-orchestrator');
     // Event-driven: a watched session becomes idle -> message to orchestrator.
@@ -546,7 +546,7 @@ const cfgBase = () => {
       await sleep(3500);
     }
     await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'paused by max rounds', timeout: 120000 });
-    await page.click('button:has-text("■ Stopp")');
+    await page.click('button:has-text("■ Stop")');
     await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'stopped', { msg: 'stopped' });
     const audit = await page.evaluate(() => window.atm.call('auditList'));
     assert.ok(audit.some((e) => e.source === 'orchestrator' && e.action === 'send_to_session'), 'orchestrator MCP calls logged');
@@ -556,7 +556,7 @@ const cfgBase = () => {
   // ---------------- Phase 2/6: persistence after restart ----------------
   await step('P2/P6 configuration and open sessions/layout survive restart (tmux re-attach)', async () => {
     await page.click('#sidebar .proj-name:text("lokal")');
-    await page.click('#main .main-head button:has-text("Kacheln")');
+    await page.click('#main .main-head button:has-text("Tiles")');
     await sleep(500);
     const before = (await m.sessions()).map((s) => `${s.projectId}/${s.name}`).sort();
     await app.close();

@@ -17,7 +17,7 @@ const exe = process.argv[2] || (process.platform === 'win32'
   const app = await electron.launch({ executablePath: exe, env: { ...process.env, ATM_USER_DATA: dir }, timeout: 60000 });
   const page = await app.firstWindow();
   await page.waitForFunction(() => window.__atm && window.__atm.S);
-  await page.click('text=+ Session öffnen');
+  await page.click('text=+ Open session');
   const marker = 'pkg-ok-' + Date.now();
   await page.waitForTimeout(2500);
   await page.keyboard.type('echo ' + marker);

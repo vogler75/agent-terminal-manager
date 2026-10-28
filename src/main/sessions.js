@@ -326,16 +326,17 @@ class SessionManager extends EventEmitter {
   find(ref, projectRef) {
     if (!ref) return null;
     if (this.sessions.has(ref)) return this.sessions.get(ref);
+    // "project/name" form; it names the project itself, so it wins over projectRef.
+    if (ref.includes('/')) {
+      const [pn, sn] = ref.split('/');
+      const p = this.store.findProject(pn);
+      const hit = p && [...this.sessions.values()].find((s) => s.projectId === p.id && s.name === sn);
+      if (hit) return hit;
+    }
     let list = [...this.sessions.values()];
     if (projectRef) {
       const p = this.store.findProject(projectRef);
       list = list.filter((s) => p && s.projectId === p.id);
-    }
-    // "project/name" form
-    if (!projectRef && ref.includes('/')) {
-      const [pn, sn] = ref.split('/');
-      const p = this.store.findProject(pn);
-      return list.find((s) => p && s.projectId === p.id && s.name === sn) || null;
     }
     return list.find((s) => s.name === ref) || null;
   }

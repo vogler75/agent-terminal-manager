@@ -8,7 +8,7 @@ const { LocalOpenCodeServer, findOpencode, simplifyMessages } = require('./openc
 const TEMPLATES = [
   {
     id: 'dev-review',
-    name: 'Entwickler + Reviewer',
+    name: 'Developer + reviewer',
     prompt: `You are an orchestrator that coordinates two coding agents running in terminal sessions of the Agent Terminal Manager.
 You control them only through the MCP tools of the "atm" server (list_sessions, send_to_session, read_output, wait_until_idle, wait_for_any_idle).
 
@@ -27,7 +27,7 @@ Rules: keep prompts to the agents short and concrete. Do not invent output; alwa
   },
   {
     id: 'watch',
-    name: 'Überwachung',
+    name: 'Watch',
     prompt: `You watch agent sessions of the Agent Terminal Manager through the MCP tools of the "atm" server.
 When you receive an [ATM event] that a session is waiting, read its output and decide:
 - If the agent finished its task, summarize the result in one or two sentences.
@@ -36,7 +36,7 @@ When you receive an [ATM event] that a session is waiting, read its output and d
   },
   {
     id: 'empty',
-    name: 'Leer',
+    name: 'Empty',
     prompt: 'You are an orchestrator for the Agent Terminal Manager. Use the MCP tools of the "atm" server to control the sessions you are allowed to access.',
   },
 ];

@@ -1,17 +1,17 @@
 # Agent Terminal Manager
 
-Desktop-App (Windows und macOS) zum Verwalten vieler parallel laufender AI-Agents über Projekte. Jedes Projekt hat ein oder mehrere Terminals (lokal, SSH, WSL) oder Agent-Sessions (OpenCode über API). Ein eingebauter MCP-Server und Orchestratoren auf Basis von OpenCode steuern die Sessions.
+Desktop app (Windows and macOS) for managing many AI agents running in parallel across projects. Each project has one or more terminals (local, SSH, WSL) or agent sessions (OpenCode, controlled via its API). A built-in MCP server and OpenCode-based orchestrators control the sessions.
 
-Technik: Electron, xterm.js, node-pty, `@modelcontextprotocol/sdk`, OpenCode (Server-Modus, API v2).
+Stack: Electron, xterm.js, node-pty, `@modelcontextprotocol/sdk`, OpenCode (server mode, API v2).
 
-## Starten
+## Run
 
 ```bash
 npm install
 npm start
 ```
 
-Pakete bauen (`release/`):
+Build packages (`release/`):
 
 ```bash
 npm run dist:win
@@ -21,7 +21,7 @@ npm run dist:win
 npm run dist:mac
 ```
 
-macOS-Pakete müssen auf einem Mac gebaut werden; `.github/workflows/build.yml` baut beide Plattformen in GitHub Actions.
+macOS packages must be built on a Mac; `.github/workflows/build.yml` builds both platforms in GitHub Actions.
 
 Tests:
 
@@ -33,87 +33,87 @@ npm test
 npm run e2e
 ```
 
-Das E2E-Skript steuert die echte App per Playwright. Mit Umgebungsvariablen werden zusätzliche Teile getestet: `ATM_E2E_SSH=user@host:port` (SSH-Ziel mit Key-Login und tmux), `ATM_E2E_WSL=Ubuntu`, `ATM_E2E_OPENCODE=1` (Agent-Session und Orchestrator, braucht ein funktionierendes OpenCode-Modell).
+The E2E script drives the real app through Playwright. Environment variables enable additional parts: `ATM_E2E_SSH=user@host:port` (SSH target with key login and tmux), `ATM_E2E_WSL=Ubuntu`, `ATM_E2E_OPENCODE=1` (agent session and orchestrator; needs a working OpenCode model).
 
-## Bedienung
+## Usage
 
-- **Links** der Projektbaum: Projekte mit Statuspunkt, darunter ihre Sessions. `+` öffnet eine Session mit der Standard-Session des Projekts, `▦` schaltet die Kachelansicht, `⚙` bearbeitet das Projekt. Rechtsklick auf Projekt oder Session öffnet weitere Aktionen (umbenennen, für MCP freigeben, als Orchestrator markieren, neu verbinden, schließen mit oder ohne Beenden der tmux-Session).
-- **Rechts** die Sessions des Projekts als Tabs oder Kacheln (2 = nebeneinander, 3 = drei Spalten oder 1 groß + 2 klein, 4 = 2×2, mehr = Raster). Klick auf den Kachelkopf führt zurück zur Einzelansicht.
-- **Übersicht**: alle laufenden Sessions aller Projekte, gruppiert mit Rahmen, Projektname und Statuspunkt. Verkleinert wird über die xterm-Schriftgröße (scharfer Text). Kleinere Kacheln haben weniger Zeilen und Spalten; die Programme bekommen die neue Größe und brechen ggf. um. Klick öffnet die Session.
-- **Status**: arbeitet (gelb, Output in den letzten *n* Sekunden), wartet (grün, kein Output länger als die Schwelle — Standard 5 s, pro Projekt einstellbar — oder Bell-Zeichen). Beim Wechsel auf „wartet“ gibt es eine Desktop-Benachrichtigung; Klick öffnet die Session.
-- **Gespeicherte Befehle** pro Projekt erscheinen als Knöpfe über dem Terminal und laufen in der aktiven Session.
-- Terminals bleiben beim Projektwechsel verbunden. Offene Sessions, Ansicht und Kachel-Aufteilung werden pro Projekt gespeichert und beim Neustart wiederhergestellt; mit tmux hängt sich die App an die weiterlaufenden Sessions an.
+- **Left:** the project tree — projects with a status dot and their sessions underneath. `+` opens a session with the project's default session, `▦` toggles the tile view, `⚙` edits the project. Right-click a project or session for more actions (rename, share with MCP, mark as orchestrator, reconnect, close with or without killing the tmux session).
+- **Right:** the project's sessions as tabs or tiles (2 = side by side, 3 = three columns or one large + two small, 4 = 2×2, more = grid). Clicking a tile header returns to the single view.
+- **Overview:** all running sessions of all projects, grouped in frames with project name and status dot. Tiles shrink via the xterm font size, so text stays sharp. Smaller tiles have fewer rows and columns; programs receive the new size and may re-wrap. Click a tile to open the session.
+- **Status:** working (yellow, output within the last *n* seconds) and waiting (green, no output for longer than the threshold — default 5 s, configurable per project — or a bell character). Switching to “waiting” triggers a desktop notification; clicking it opens the session.
+- **Saved commands** per project appear as buttons above the terminal and run in the active session.
+- Terminals stay connected when switching projects. Open sessions, view mode and tile layout are saved per project and restored on restart; with tmux the app re-attaches to the sessions that kept running.
 
-### Tastenkürzel
+### Keyboard shortcuts
 
-| Kürzel | Aktion |
+| Shortcut | Action |
 |---|---|
-| Strg/⌘ + Shift + T | neue Session |
-| Strg/⌘ + 1…9 | Projekt wechseln |
-| Strg/⌘ + Tab | nächste Session |
-| Strg/⌘ + Shift + G | Kachelansicht |
-| Strg/⌘ + Shift + O | Gesamtübersicht |
-| Strg/⌘ + Shift + W | Session schließen |
-| Strg/⌘ + Shift + C / V | Kopieren / Einfügen |
+| Ctrl/⌘ + Shift + T | new session |
+| Ctrl/⌘ + 1…9 | switch project |
+| Ctrl/⌘ + Tab | next session |
+| Ctrl/⌘ + Shift + G | tile view |
+| Ctrl/⌘ + Shift + O | overview |
+| Ctrl/⌘ + Shift + W | close session |
+| Ctrl/⌘ + Shift + C / V | copy / paste |
 
-## Verbindungen
+## Connections
 
-| Typ | Aufruf |
+| Type | Command |
 |---|---|
-| Lokal | PowerShell (Windows) bzw. `$SHELL -l` (macOS) im Startverzeichnis |
-| SSH | `ssh -t [-p port] [-o ServerAliveInterval=30 -o ServerAliveCountMax=3] user@host '<script>'` — das Skript wechselt ins Verzeichnis und hängt sich an die tmux-Session `atm-<projekt>-<session>` an oder legt sie an (mit Startbefehl). Ohne tmux: `cd <dir> && exec $SHELL -l`. |
-| WSL | `wsl.exe -d <Distribution> --cd <Pfad> [-- bash -lc '<tmux-script>']` |
-| Agent (OpenCode) | startet `opencode serve` (lokal direkt, auf SSH/WSL-Zielen in tmux) und spricht über die HTTP-API; SSH-Ziele werden per `ssh -L` erreicht. Status (arbeitet/fertig), Prompts, Antworten und Tool-Aufrufe kommen strukturiert aus der API. |
+| Local | PowerShell (Windows) or `$SHELL -l` (macOS) in the start directory |
+| SSH | `ssh -t [-p port] [-o ServerAliveInterval=30 -o ServerAliveCountMax=3] user@host '<script>'` — the script changes into the directory and attaches to (or creates) the tmux session `atm-<project>-<session>`, running the start command on creation. Without tmux: `cd <dir> && exec $SHELL -l`. |
+| WSL | `wsl.exe -d <distribution> --cd <path> [-- bash -lc '<tmux script>']` |
+| Agent (OpenCode) | starts `opencode serve` (locally directly, on SSH/WSL targets inside tmux) and talks to its HTTP API; SSH targets are reached via `ssh -L`. Status (working/done), prompts, answers and tool calls come structured from the API. |
 
-Authentifizierung ausschließlich über SSH-Keys, ssh-agent und die eigene `~/.ssh/config` (Host-Aliase funktionieren als Hostname). Es werden keine Passwörter gespeichert; beim Speichern und Importieren werden Felder wie `password` entfernt.
+Authentication uses SSH keys, ssh-agent and your own `~/.ssh/config` only (host aliases work as hostnames). No passwords are stored; fields such as `password` are stripped on save and import.
 
-Port-Forwarding pro SSH-Projekt (lokaler Port → Remote-Port) läuft als eigener `ssh -N -L …`-Prozess, solange mindestens eine Session des Projekts läuft.
+Port forwarding per SSH project (local port → remote port) runs as a separate `ssh -N -L …` process while at least one session of the project is running.
 
-## Entwickler-Hosts
+## Developer hosts
 
-Unter **Hosts** werden die Linux-Entwicklungsrechner einmal angelegt (Name, Hostname/IP, Port, Benutzer, Workspace-Ordner, Tags). Projekte verweisen auf einen Host. Die App prüft die Erreichbarkeit (TCP) alle 30 s und zählt die Sessions pro Host; „SSH prüfen“ zählt zusätzlich die tmux-Sessions auf dem Host.
+Under **Hosts** you register your Linux development machines once (name, hostname/IP, port, user, workspace folder, tags). Projects reference a host. The app checks reachability (TCP) every 30 s and counts sessions per host; “Check SSH” additionally counts the tmux sessions on the host.
 
-## MCP-Server
+## MCP server
 
-Streamable HTTP unter `http://127.0.0.1:47900/mcp` (Bind-Adresse und Port einstellbar, an- und abschaltbar). Jede Anfrage braucht `Authorization: Bearer <token>`; Tokens werden in der App erzeugt (voll oder nur lesen), gehasht gespeichert, und lassen sich widerrufen und erneuern.
+Streamable HTTP at `http://127.0.0.1:47900/mcp` (bind address and port configurable, can be turned on and off). Every request needs `Authorization: Bearer <token>`; tokens are created in the app (full or read-only), stored as hashes, and can be revoked and renewed.
 
 Tools:
 
-| Tool | Zweck |
+| Tool | Purpose |
 |---|---|
-| `list_projects`, `list_sessions` | Projekte und Sessions mit Status |
-| `send_to_session` | Text/Prompt an eine Session (mit Enter) |
-| `read_output` | letzte N Zeilen oder Output seit Marker; Agent-Sessions liefern Nachrichten |
-| `wait_until_idle` | blockiert bis „wartet“ (Timeout) |
-| `wait_for_any_idle` | blockiert, bis eine von mehreren Sessions fertig ist |
-| `open_session` | neue Session (Standard-Konfiguration, optional Agent) |
-| `run_command` | gespeicherten Befehl ausführen |
-| `list_hosts`, `find_free_host` | Host-Verzeichnis, freien Host finden |
-| `create_directory` | Verzeichnis im Workspace-Ordner eines Hosts anlegen |
-| `create_project` | Projekt auf einem Host anlegen und Session mit Startbefehl öffnen |
+| `list_projects`, `list_sessions` | projects and sessions with status |
+| `send_to_session` | send text/a prompt to a session (with Enter) |
+| `read_output` | last N lines or output since a marker; agent sessions return messages |
+| `wait_until_idle` | blocks until “waiting” (with timeout) |
+| `wait_for_any_idle` | blocks until one of several sessions is done |
+| `open_session` | new session (default configuration, optionally an agent) |
+| `run_command` | run a saved command |
+| `list_hosts`, `find_free_host` | host directory, find a free host |
+| `create_directory` | create a directory in a host's workspace folder |
+| `create_project` | create a project on a host and open a session with a start command |
 
-Ressourcen: `session://<projekt>/<name>/status`, abonnierbar (`notifications/resources/updated` bei Statuswechsel). Viele Clients wecken das Modell bei Push-Notifications nicht auf; die blockierenden Warte-Tools sind der verlässliche Weg.
+Resources: `session://<project>/<name>/status`, subscribable (`notifications/resources/updated` on status change). Many clients don't wake the model on push notifications; the blocking wait tools are the reliable path.
 
-Freigaben (MCP-Seite): Aktionen mit Nebenwirkung sind einzeln freischaltbar. Standardmäßig sind nur freigegebene Sessions sichtbar; als Orchestrator markierte Sessions sind nie Ziel. Alle MCP-, Orchestrator- und externen Zugriffe landen im **Protokoll** und in `audit.log` im Datenverzeichnis.
+Permissions (MCP page): actions with side effects can be enabled individually. By default only shared sessions are visible; sessions marked as orchestrator are never a target. All MCP, orchestrator and external requests go to the **Audit log** and to `audit.log` in the data folder.
 
-Einbinden in Claude Code:
+Connect Claude Code:
 
 ```bash
 claude mcp add --transport http atm http://127.0.0.1:47900/mcp --header "Authorization: Bearer <token>"
 ```
 
-Clients, die nur stdio sprechen, nutzen die Bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_TOKEN=<token> node dist/atm-mcp-stdio.js [url]`).
+Clients that only speak stdio use the bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_TOKEN=<token> node dist/atm-mcp-stdio.js [url]`).
 
-Zugriff von außen (Claude App, Web, Sprachmodus): direkt über das Internet hinter einem Nginx-Reverse-Proxy mit HTTPS, siehe [docs/nginx.conf](docs/nginx.conf).
+Access from outside (Claude app, web, voice mode): directly over the internet behind an Nginx reverse proxy with HTTPS, see [docs/nginx.conf](docs/nginx.conf).
 
-## Orchestratoren (OpenCode)
+## Orchestrators (OpenCode)
 
-Unter **Orchestratoren** lassen sich mehrere Orchestratoren anlegen, jeder mit Name, System-Prompt (Vorlagen „Entwickler + Reviewer“, „Überwachung“), Modell (`provider/model`, leer = OpenCode-Standard), maximaler Rundenzahl und per Checkbox gewählten überwachten Sessions. Beim Start startet die App einen eigenen `opencode serve`, trägt den MCP-Server der App mit einem nur für diese Sessions gültigen Token ein und legt eine OpenCode-Session mit dem System-Prompt an.
+Under **Orchestrators** you can create several orchestrators, each with a name, system prompt (templates “Developer + reviewer”, “Watch”), model (`provider/model`, empty = OpenCode default), maximum rounds and the watched sessions picked by checkbox. On start the app launches its own `opencode serve`, registers the app's MCP server with a token valid only for those sessions, and creates an OpenCode session with the system prompt.
 
-Wird eine überwachte Session fertig, schickt die App das Ereignis mit dem letzten Output als neue Nachricht an den Orchestrator (`[ATM event] …`); ist er gerade beschäftigt, wird das Ereignis eingereiht. Die Ansicht zeigt Verlauf, aktuelle Aktion, Runden und hat ein Eingabefeld. Bremsen: maximale Rundenzahl (danach Pause), Pause, Abbrechen, Stopp. Eine Session kann nur von einem Orchestrator gesteuert werden; Konflikte werden beim Speichern abgewiesen und angezeigt.
+When a watched session finishes, the app sends the event with the latest output as a new message to the orchestrator (`[ATM event] …`); if it is busy, the event is queued. The view shows history, current action and rounds, and has an input field. Brakes: maximum rounds (then pause), pause, interrupt, stop. A session can only be controlled by one orchestrator; conflicts are rejected on save and shown.
 
-Das OpenCode-Programm wird automatisch gesucht (unter Windows auch das Plattform-Binary im npm-Paket); der Pfad lässt sich in den Einstellungen setzen.
+The OpenCode program is detected automatically (on Windows including the platform binary inside the npm package); the path can be set in Settings.
 
-## Daten
+## Data
 
-`config.json`, `audit.log` und Orchestrator-Arbeitsverzeichnisse liegen im App-Datenverzeichnis (Einstellungen → Datenverzeichnis öffnen). Export/Import als JSON über Einstellungen oder das Datei-Menü; Tokens werden nicht exportiert.
+`config.json`, `audit.log` and orchestrator working folders live in the app data folder (Settings → Open data folder). Export/import as JSON via Settings or the File menu; tokens are not exported.

@@ -10,11 +10,11 @@ function rowsEditor(items, cols) {
     const inputs = cols.map((c) => c.options
       ? h('select', { 'data-k': c.key, style: { flex: '0 0 110px' } }, c.options.map(([v, l]) => h('option', { value: v, selected: (it[c.key] || c.options[0][0]) === v }, l)))
       : h('input', { 'data-k': c.key, placeholder: c.placeholder, value: it[c.key] ?? '', class: c.small ? 'small' : '', type: c.type || 'text' }));
-    const r = h('div', { class: 'r' }, inputs, h('button', { class: 'icon', title: 'Entfernen', onclick: () => r.remove() }, '✕'));
+    const r = h('div', { class: 'r' }, inputs, h('button', { class: 'icon', title: 'Remove', onclick: () => r.remove() }, '✕'));
     list.appendChild(r);
   };
   (items || []).forEach(addRow);
-  wrap.append(list, h('button', { onclick: () => addRow() }, '+ hinzufügen'));
+  wrap.append(list, h('button', { onclick: () => addRow() }, '+ Add'));
   return {
     el: wrap,
     get: () => [...list.children].map((r) => {
@@ -28,29 +28,29 @@ function rowsEditor(items, cols) {
 export function editProject(ctx, p) {
   const { S, call } = ctx;
   const isNew = !p;
-  p = p ? structuredClone(p) : { type: S.platform === 'win32' ? 'local' : 'local', tmux: S.platform !== 'win32', keepAlive: true, defaultSession: { name: 'shell', command: '', kind: 'terminal' }, terminals: [], commands: [], forwards: [], port: 22 };
+  p = p ? structuredClone(p) : { type: 'local', tmux: S.platform !== 'win32', keepAlive: true, defaultSession: { name: 'shell', command: '', kind: 'terminal' }, terminals: [], commands: [], forwards: [], port: 22 };
   const I = (k, attrs = {}) => h('input', { value: p[k] ?? '', ...attrs });
-  const name = I('name', { placeholder: 'z. B. backend' });
-  const type = h('select', null, [['local', 'Lokal'], ['ssh', 'SSH'], ['wsl', 'WSL']].map(([v, l]) => h('option', { value: v, selected: p.type === v }, l)));
-  const hostSel = h('select', null, h('option', { value: '' }, '— eigene Verbindungsdaten —'), S.config.hosts.map((x) => h('option', { value: x.id, selected: p.hostId === x.id }, `${x.name} (${x.user ? x.user + '@' : ''}${x.hostname})`)));
-  const host = I('host', { placeholder: 'hostname oder IP' });
-  const user = I('user', { placeholder: 'Benutzer' });
+  const name = I('name', { placeholder: 'e.g. backend' });
+  const type = h('select', null, [['local', 'Local'], ['ssh', 'SSH'], ['wsl', 'WSL']].map(([v, l]) => h('option', { value: v, selected: p.type === v }, l)));
+  const hostSel = h('select', null, h('option', { value: '' }, '— custom connection —'), S.config.hosts.map((x) => h('option', { value: x.id, selected: p.hostId === x.id }, `${x.name} (${x.user ? x.user + '@' : ''}${x.hostname})`)));
+  const host = I('host', { placeholder: 'hostname or IP' });
+  const user = I('user', { placeholder: 'user' });
   const port = I('port', { type: 'number' });
-  const dir = I('directory', { placeholder: 'z. B. ~/workspace/backend oder C:\\Projekte\\x' });
-  const distro = I('wslDistro', { placeholder: 'z. B. Ubuntu' });
+  const dir = I('directory', { placeholder: 'e.g. ~/workspace/backend or C:\\Projects\\x' });
+  const distro = I('wslDistro', { placeholder: 'e.g. Ubuntu' });
   const tmux = h('input', { type: 'checkbox', checked: p.tmux });
   const keep = h('input', { type: 'checkbox', checked: p.keepAlive });
   const keepInt = h('input', { type: 'number', value: p.keepAliveInterval || 30, style: { width: '80px' } });
   const keepMax = h('input', { type: 'number', value: p.keepAliveCountMax || 3, style: { width: '80px' } });
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
-  const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `Standard (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
+  const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
-  const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'z. B. claude (optional)' });
+  const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'e.g. claude (optional)' });
   const dsKind = h('select', null, [['terminal', 'Terminal'], ['agent', 'Agent (OpenCode)']].map(([v, l]) => h('option', { value: v, selected: (p.defaultSession.kind || 'terminal') === v }, l)));
   const agentCmd = h('input', { value: p.agentCommand || 'opencode' });
-  const terms = rowsEditor(p.terminals, [{ key: 'name', placeholder: 'Name', small: true }, { key: 'command', placeholder: 'Startbefehl (optional)' }, { key: 'kind', options: [['terminal', 'Terminal'], ['agent', 'Agent']] }]);
-  const cmds = rowsEditor(p.commands, [{ key: 'name', placeholder: 'Name, z. B. Agent starten', small: false }, { key: 'command', placeholder: 'Befehl, z. B. claude --continue' }]);
-  const fwds = rowsEditor(p.forwards, [{ key: 'local', placeholder: 'lokal', small: true, type: 'number' }, { key: 'remote', placeholder: 'remote', small: true, type: 'number' }, { key: 'remoteHost', placeholder: 'Ziel-Host (Standard localhost)' }]);
+  const terms = rowsEditor(p.terminals, [{ key: 'name', placeholder: 'Name', small: true }, { key: 'command', placeholder: 'Start command (optional)' }, { key: 'kind', options: [['terminal', 'Terminal'], ['agent', 'Agent']] }]);
+  const cmds = rowsEditor(p.commands, [{ key: 'name', placeholder: 'Name, e.g. Start agent', small: false }, { key: 'command', placeholder: 'Command, e.g. claude --continue' }]);
+  const fwds = rowsEditor(p.forwards, [{ key: 'local', placeholder: 'local', small: true, type: 'number' }, { key: 'remote', placeholder: 'remote', small: true, type: 'number' }, { key: 'remoteHost', placeholder: 'Target host (default localhost)' }]);
 
   const sshOnly = [];
   const inlineOnly = [];
@@ -58,27 +58,27 @@ export function editProject(ctx, p) {
   const grp = (arr, ...els) => { arr.push(...els.filter(Boolean)); return els; };
   const form = h('div', { class: 'form' },
     field('Name', name),
-    field('Verbindungstyp', type),
-    grp(sshOnly, ...field('Entwickler-Host', hostSel, 'Projekte verweisen auf einen Host aus dem Host-Verzeichnis')),
+    field('Connection type', type),
+    grp(sshOnly, ...field('Developer host', hostSel, 'Projects reference a host from the host directory')),
     grp(inlineOnly, ...field('Host', host)),
-    grp(inlineOnly, ...field('Benutzer', user)),
+    grp(inlineOnly, ...field('User', user)),
     grp(inlineOnly, ...field('Port', port)),
-    grp(wslOnly, ...field('WSL-Distribution', distro)),
-    field('Startverzeichnis', dir, 'Leer = Workspace-Ordner des Hosts bzw. Home-Verzeichnis'),
-    field('tmux', h('label', { class: 'row' }, tmux, 'Pro Terminal eine benannte tmux-Session (attach or create), Agents laufen bei Abbruch weiter')),
-    grp(sshOnly, ...field('Keep-Alive', h('div', { class: 'row' }, keep, h('span', { class: 'muted' }, 'ServerAliveInterval'), keepInt, h('span', { class: 'muted' }, 'CountMax'), keepMax))),
-    field('Auto-Reconnect', h('label', { class: 'row' }, auto, 'Bei Verbindungsabbruch automatisch neu verbinden')),
-    field('Statusschwelle (s)', thr, 'Kein Output länger als diese Zeit → grüner Punkt (wartet)'),
-    h('h3', { class: 'full' }, 'Standard-Session (Plus-Button)'),
+    grp(wslOnly, ...field('WSL distribution', distro)),
+    field('Start directory', dir, 'Empty = the host’s workspace folder or the home directory'),
+    field('tmux', h('label', { class: 'row' }, tmux, 'One named tmux session per terminal (attach or create); agents keep running when the connection drops')),
+    grp(sshOnly, ...field('Keep-alive', h('div', { class: 'row' }, keep, h('span', { class: 'muted' }, 'ServerAliveInterval'), keepInt, h('span', { class: 'muted' }, 'CountMax'), keepMax))),
+    field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
+    field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
+    h('h3', { class: 'full' }, 'Default session (plus button)'),
     field('Name', dsName),
-    field('Startbefehl', dsCmd),
-    field('Typ', dsKind),
-    field('Agent-Befehl', agentCmd, 'Programm für Agent-Sessions auf dem Ziel (OpenCode im Server-Modus)'),
-    h('h3', { class: 'full' }, 'Terminals („Alle starten“)'),
+    field('Start command', dsCmd),
+    field('Type', dsKind),
+    field('Agent command', agentCmd, 'Program for agent sessions on the target (OpenCode in server mode)'),
+    h('h3', { class: 'full' }, 'Terminals (“Start all”)'),
     h('div', { class: 'full' }, terms.el),
-    h('h3', { class: 'full' }, 'Gespeicherte Befehle'),
+    h('h3', { class: 'full' }, 'Saved commands'),
     h('div', { class: 'full' }, cmds.el),
-    grp(sshOnly, h('h3', { class: 'full' }, 'Port-Forwarding (lokaler Port → Remote-Port)')),
+    grp(sshOnly, h('h3', { class: 'full' }, 'Port forwarding (local port → remote port)')),
     grp(sshOnly, h('div', { class: 'full' }, fwds.el)));
 
   const sync = () => {
@@ -92,15 +92,15 @@ export function editProject(ctx, p) {
   sync();
 
   modal({
-    title: isNew ? 'Neues Projekt' : `Projekt „${p.name}“ bearbeiten`,
+    title: isNew ? 'New project' : `Edit project “${p.name}”`,
     body: form,
     width: '780px',
     extraButtons: isNew ? [] : [h('button', { class: 'danger', onclick: async () => {
-      if (await confirmDialog('Projekt löschen', `Projekt „${p.name}“ löschen?`, 'Löschen')) { await call('deleteProject', p.id); document.querySelector('.modal-bg')?.remove(); }
-    } }, 'Löschen')],
+      if (await confirmDialog('Delete project', `Delete project “${p.name}”?`, 'Delete')) { await call('deleteProject', p.id); document.querySelector('.modal-bg')?.remove(); }
+    } }, 'Delete')],
     onOk: async () => {
-      if (!name.value.trim()) throw new Error('Name fehlt');
-      if (type.value === 'ssh' && !hostSel.value && !host.value.trim()) throw new Error('Host fehlt');
+      if (!name.value.trim()) throw new Error('Name is missing');
+      if (type.value === 'ssh' && !hostSel.value && !host.value.trim()) throw new Error('Host is missing');
       const out = {
         ...p,
         name: name.value.trim(),
@@ -136,10 +136,10 @@ export function editProject(ctx, p) {
 // ---------- hosts ----------
 export function renderHosts(ctx, main) {
   main.appendChild(h('div', { class: 'main-head' },
-    h('span', { class: 'title' }, 'Entwickler-Hosts'),
-    h('span', { class: 'muted' }, 'Anmeldung über SSH-Keys / ssh-agent / ~/.ssh/config — es werden keine Passwörter gespeichert'),
+    h('span', { class: 'title' }, 'Developer hosts'),
+    h('span', { class: 'muted' }, 'Login via SSH keys / ssh-agent / ~/.ssh/config — no passwords are stored'),
     h('div', { class: 'spacer' }),
-    h('button', { onclick: () => ctx.call('checkHosts') }, '↻ Prüfen'),
+    h('button', { onclick: () => ctx.call('checkHosts') }, '↻ Check'),
     h('button', { class: 'primary', onclick: () => editHost(ctx, null) }, '+ Host')));
   const page = h('div', { class: 'content' }, h('div', { class: 'page', id: 'hosts-page' }));
   main.appendChild(page);
@@ -152,12 +152,12 @@ export function renderHostsTable(ctx) {
   clear(el);
   const { S, call } = ctx;
   if (!S.config.hosts.length) {
-    el.appendChild(h('div', { class: 'muted' }, 'Noch keine Hosts. Lege die Linux-Entwicklungsrechner einmalig an; Projekte verweisen dann auf einen Host.'));
+    el.appendChild(h('div', { class: 'muted' }, 'No hosts yet. Add your Linux development machines once; projects then reference a host.'));
     return;
   }
   const byId = new Map(S.hosts.map((x) => [x.id, x]));
   el.appendChild(h('table', { class: 'list' },
-    h('tr', null, ['', 'Name', 'Verbindung', 'Workspace', 'Tags', 'Erreichbar', 'Sessions (App / tmux)', ''].map((t) => h('th', null, t))),
+    h('tr', null, ['', 'Name', 'Connection', 'Workspace', 'Tags', 'Reachable', 'Sessions (app / tmux)', ''].map((t) => h('th', null, t))),
     S.config.hosts.map((host) => {
       const st = byId.get(host.id) || {};
       return h('tr', null,
@@ -166,14 +166,14 @@ export function renderHostsTable(ctx) {
         h('td', { class: 'mono' }, `${host.user ? host.user + '@' : ''}${host.hostname}:${host.port}`),
         h('td', { class: 'mono' }, host.workspace),
         h('td', null, (host.tags || []).map((t) => h('span', { class: 'tag' }, t))),
-        h('td', null, st.checkedAt ? (st.reachable ? h('span', { class: 'ok' }, `ja (${st.ms} ms)`) : h('span', { class: 'bad', title: st.error }, 'nein')) : '…',
+        h('td', null, st.checkedAt ? (st.reachable ? h('span', { class: 'ok' }, `yes (${st.ms} ms)`) : h('span', { class: 'bad', title: st.error }, 'no')) : '…',
           st.sshError ? h('div', { class: 'bad', style: { fontSize: '11px' } }, 'ssh: ' + st.sshError) : null),
         h('td', null, `${st.appSessions ?? 0} / ${st.remoteTmux ?? '–'}`),
         h('td', null, h('div', { class: 'row' },
-          h('button', { onclick: () => call('checkHostSsh', host.id), title: 'Per SSH (BatchMode) tmux-Sessions zählen' }, 'SSH prüfen'),
-          h('button', { onclick: () => quickProject(ctx, host) }, '+ Projekt'),
+          h('button', { onclick: () => call('checkHostSsh', host.id), title: 'Count tmux sessions via SSH (BatchMode)' }, 'Check SSH'),
+          h('button', { onclick: () => quickProject(ctx, host) }, '+ Project'),
           h('button', { class: 'icon', onclick: () => editHost(ctx, host) }, '✎'),
-          h('button', { class: 'icon danger', onclick: async () => { if (await confirmDialog('Host löschen', `Host „${host.name}“ löschen?`, 'Löschen')) call('deleteHost', host.id); } }, '✕'))));
+          h('button', { class: 'icon danger', onclick: async () => { if (await confirmDialog('Delete host', `Delete host “${host.name}”?`, 'Delete')) call('deleteHost', host.id); } }, '✕'))));
     })));
 }
 
@@ -194,16 +194,16 @@ function quickProject(ctx, host) {
 function editHost(ctx, host) {
   const x = host || { port: 22, workspace: '~/workspace', tags: [] };
   const name = h('input', { value: x.name || '' });
-  const hostname = h('input', { value: x.hostname || '', placeholder: 'Hostname oder IP (oder Alias aus ~/.ssh/config)' });
+  const hostname = h('input', { value: x.hostname || '', placeholder: 'Hostname or IP (or an alias from ~/.ssh/config)' });
   const port = h('input', { type: 'number', value: x.port || 22 });
   const user = h('input', { value: x.user || '' });
   const ws = h('input', { value: x.workspace || '~/workspace' });
-  const tags = h('input', { value: (x.tags || []).join(', '), placeholder: 'gpu, gross, …' });
+  const tags = h('input', { value: (x.tags || []).join(', '), placeholder: 'gpu, large, …' });
   modal({
-    title: host ? 'Host bearbeiten' : 'Neuer Host',
-    body: h('div', { class: 'form' }, field('Name', name), field('Hostname/IP', hostname), field('Port', port), field('Benutzer', user), field('Workspace-Ordner', ws), field('Tags', tags, 'Kommagetrennt')),
+    title: host ? 'Edit host' : 'New host',
+    body: h('div', { class: 'form' }, field('Name', name), field('Hostname/IP', hostname), field('Port', port), field('User', user), field('Workspace folder', ws), field('Tags', tags, 'Comma-separated')),
     onOk: async () => {
-      if (!hostname.value.trim()) throw new Error('Hostname fehlt');
+      if (!hostname.value.trim()) throw new Error('Hostname is missing');
       await ctx.call('saveHost', { ...x, name: name.value.trim() || hostname.value.trim(), hostname: hostname.value.trim(), port: Number(port.value) || 22, user: user.value.trim(), workspace: ws.value.trim(), tags: tags.value });
     },
   });
@@ -215,10 +215,10 @@ export function renderMcp(ctx, main) {
   const st = S.mcp || {};
   const cfg = S.config.settings.mcp || {};
   main.appendChild(h('div', { class: 'main-head' },
-    h('span', { class: 'title' }, 'MCP-Server'),
-    h('span', { class: st.running ? 'ok' : 'bad' }, st.running ? '● läuft · ' + st.url : st.error ? '● Fehler: ' + st.error : '○ aus'),
+    h('span', { class: 'title' }, 'MCP server'),
+    h('span', { class: st.running ? 'ok' : 'bad' }, st.running ? '● running · ' + st.url : st.error ? '● error: ' + st.error : '○ off'),
     h('div', { class: 'spacer' }),
-    h('button', { onclick: async () => { await call('updateSettings', { mcp: { enabled: !cfg.enabled } }); reloadConfig(ctx); } }, cfg.enabled ? 'Ausschalten' : 'Einschalten')));
+    h('button', { onclick: async () => { await call('updateSettings', { mcp: { enabled: !cfg.enabled } }); reloadConfig(ctx); } }, cfg.enabled ? 'Turn off' : 'Turn on')));
   const page = h('div', { class: 'page page-narrow' });
   main.appendChild(h('div', { class: 'content' }, page));
 
@@ -226,20 +226,20 @@ export function renderMcp(ctx, main) {
   const renderTokens = async () => {
     S.tokens = await call('listTokens');
     clear(tokensBox);
-    if (!S.tokens.length) tokensBox.appendChild(h('div', { class: 'muted' }, 'Keine Tokens. Ohne gültigen Token antwortet der Server nicht.'));
+    if (!S.tokens.length) tokensBox.appendChild(h('div', { class: 'muted' }, 'No tokens. Without a valid token the server does not answer.'));
     else tokensBox.appendChild(h('table', { class: 'list' },
-      h('tr', null, ['Name', 'Zugriff', 'Präfix', 'Erstellt', 'Zuletzt benutzt', 'Status', ''].map((t) => h('th', null, t))),
+      h('tr', null, ['Name', 'Access', 'Prefix', 'Created', 'Last used', 'Status', ''].map((t) => h('th', null, t))),
       S.tokens.map((t) => h('tr', null,
         h('td', null, t.name),
-        h('td', null, t.readOnly ? 'nur lesen' : 'voll'),
+        h('td', null, t.readOnly ? 'read-only' : 'full'),
         h('td', { class: 'mono' }, t.prefix + '…'),
         h('td', null, fmtTime(t.created)),
-        h('td', null, t.lastUsed ? timeAgo(t.lastUsed) : '–'),
-        h('td', null, t.revoked ? h('span', { class: 'bad' }, 'widerrufen') : h('span', { class: 'ok' }, 'aktiv')),
+        h('td', null, t.lastUsed ? timeAgo(t.lastUsed) + ' ago' : '–'),
+        h('td', null, t.revoked ? h('span', { class: 'bad' }, 'revoked') : h('span', { class: 'ok' }, 'active')),
         h('td', null, h('div', { class: 'row' },
-          h('button', { onclick: async () => showSecret(ctx, await call('renewToken', t.id), renderTokens) }, 'Erneuern'),
-          !t.revoked ? h('button', { onclick: async () => { await call('revokeToken', t.id); renderTokens(); } }, 'Widerrufen') : null,
-          h('button', { class: 'icon danger', onclick: async () => { await call('deleteToken', t.id); renderTokens(); } }, '✕')))))));
+          h('button', { onclick: async () => showSecret(ctx, await call('renewToken', t.id), renderTokens) }, 'Renew'),
+          !t.revoked ? h('button', { onclick: async () => { await call('revokeToken', t.id); renderTokens(); } }, 'Revoke') : null,
+          h('button', { class: 'icon danger', title: 'Delete', onclick: async () => { await call('deleteToken', t.id); renderTokens(); } }, '✕')))))));
   };
 
   const perm = (key, label) => h('label', { class: 'row', style: { color: 'var(--fg)' } },
@@ -250,52 +250,52 @@ export function renderMcp(ctx, main) {
 
   page.append(
     h('div', { class: 'card' },
-      h('h2', null, 'Endpunkt'),
+      h('h2', null, 'Endpoint'),
       h('div', { class: 'form' },
-        field('Bind-Adresse', bind, '127.0.0.1 = nur lokal (empfohlen hinter Nginx auf demselben Rechner); 0.0.0.0 = alle Interfaces'),
+        field('Bind address', bind, '127.0.0.1 = local only (recommended behind Nginx on the same machine); 0.0.0.0 = all interfaces'),
         field('Port', port),
-        h('div', { class: 'full row' }, h('div', { class: 'spacer' }), h('button', { onclick: async () => { await call('updateSettings', { mcp: { bind: bind.value.trim() || '127.0.0.1', port: Number(port.value) || 47900 } }); reloadConfig(ctx); toast('MCP-Server neu gestartet'); } }, 'Übernehmen'))),
-      h('p', { class: 'muted' }, 'Streamable HTTP unter ', h('code', null, localUrl), '. Jede Anfrage braucht ', h('code', null, 'Authorization: Bearer <token>'), '. Für den Zugriff von außen (Claude App, Web, Sprachmodus) den Port per Nginx-Reverse-Proxy mit HTTPS veröffentlichen — Beispiel in docs/nginx.conf. Externe Zugriffe werden protokolliert.')),
+        h('div', { class: 'full row' }, h('div', { class: 'spacer' }), h('button', { onclick: async () => { await call('updateSettings', { mcp: { bind: bind.value.trim() || '127.0.0.1', port: Number(port.value) || 47900 } }); reloadConfig(ctx); toast('MCP server restarted'); } }, 'Apply'))),
+      h('p', { class: 'muted' }, 'Streamable HTTP at ', h('code', null, localUrl), '. Every request needs ', h('code', null, 'Authorization: Bearer <token>'), '. For access from outside (Claude app, web, voice mode), publish the port through an Nginx reverse proxy with HTTPS — see docs/nginx.conf. External requests are logged.')),
     h('div', { class: 'card' },
       h('div', { class: 'row' }, h('h2', { style: { margin: 0 } }, 'Tokens'), h('div', { class: 'spacer' }),
-        h('button', { onclick: () => newToken(ctx, false, renderTokens) }, '+ Token (voll)'),
-        h('button', { onclick: () => newToken(ctx, true, renderTokens) }, '+ Token (nur lesen)')),
+        h('button', { onclick: () => newToken(ctx, false, renderTokens) }, '+ Token (full)'),
+        h('button', { onclick: () => newToken(ctx, true, renderTokens) }, '+ Token (read-only)')),
       h('div', { style: { marginTop: '10px' } }, tokensBox)),
     h('div', { class: 'card' },
-      h('h2', null, 'Freigaben'),
+      h('h2', null, 'Permissions'),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-        perm('restrictToShared', 'Nur freigegebene Sessions sichtbar (Kontextmenü einer Session → „Für MCP freigeben“)'),
-        perm('allowSend', 'send_to_session: Text an Sessions senden'),
-        perm('allowOpenSession', 'open_session: neue Sessions öffnen'),
-        perm('allowRunCommand', 'run_command: gespeicherte Befehle ausführen'),
-        perm('allowCreateDirectory', 'create_directory: Verzeichnisse im Workspace-Ordner anlegen'),
-        perm('allowCreateProject', 'create_project: Projekte anlegen')),
-      h('p', { class: 'muted' }, 'Lese-Tools: list_projects, list_sessions, read_output, wait_until_idle, wait_for_any_idle, list_hosts, find_free_host. Ressourcen: session://<projekt>/<name>/status (abonnierbar). Orchestrator-Sessions sind nie Ziel von Tools.')),
+        perm('restrictToShared', 'Only shared sessions are visible (session context menu → “Share with MCP”)'),
+        perm('allowSend', 'send_to_session: send text to sessions'),
+        perm('allowOpenSession', 'open_session: open new sessions'),
+        perm('allowRunCommand', 'run_command: run saved commands'),
+        perm('allowCreateDirectory', 'create_directory: create directories in the workspace folder'),
+        perm('allowCreateProject', 'create_project: create projects')),
+      h('p', { class: 'muted' }, 'Read tools: list_projects, list_sessions, read_output, wait_until_idle, wait_for_any_idle, list_hosts, find_free_host. Resources: session://<project>/<name>/status (subscribable). Orchestrator sessions are never a tool target.')),
     h('div', { class: 'card' },
-      h('h2', null, 'Einbinden'),
+      h('h2', null, 'Connect a client'),
       h('p', null, 'Claude Code (HTTP):'),
       h('pre', { class: 'secret' }, `claude mcp add --transport http atm ${localUrl} --header "Authorization: Bearer <token>"`),
-      h('p', null, 'Clients nur mit stdio (z. B. Claude Desktop) über die Bridge:'),
+      h('p', null, 'Clients that only support stdio (e.g. Claude Desktop) via the bridge:'),
       h('pre', { class: 'secret' }, JSON.stringify({ mcpServers: { atm: { command: 'node', args: [S.stdioBridge || 'atm-mcp-stdio.js', localUrl], env: { ATM_MCP_TOKEN: '<token>' } } } }, null, 2))));
   renderTokens();
 }
 
 function newToken(ctx, readOnly, after) {
-  const name = h('input', { value: readOnly ? 'lesen' : 'claude', placeholder: 'Name' });
+  const name = h('input', { value: readOnly ? 'read' : 'claude', placeholder: 'Name' });
   modal({
-    title: readOnly ? 'Neuer Token (nur lesen)' : 'Neuer Token (voller Zugriff)',
+    title: readOnly ? 'New token (read-only)' : 'New token (full access)',
     body: h('div', { class: 'form' }, field('Name', name)),
-    okText: 'Erzeugen',
+    okText: 'Create',
     onOk: async () => { const t = await ctx.call('createToken', { name: name.value.trim(), readOnly }); setTimeout(() => showSecret(ctx, t, after), 50); },
   });
 }
 
 function showSecret(ctx, t, after) {
   modal({
-    title: `Token „${t.name}“`,
-    body: h('div', null, h('p', null, 'Der Token wird nur jetzt angezeigt. Er wird gehasht gespeichert.'), h('div', { class: 'secret' }, t.secret)),
-    okText: 'Kopieren und schließen',
-    cancelText: 'Schließen',
+    title: `Token “${t.name}”`,
+    body: h('div', null, h('p', null, 'The token is shown only now. It is stored as a hash.'), h('div', { class: 'secret' }, t.secret)),
+    okText: 'Copy and close',
+    cancelText: 'Close',
     onOk: () => ctx.call('copy', t.secret),
   });
   after && after();
@@ -319,11 +319,11 @@ const auditRow = (e) => h('tr', null,
   h('td', { class: e.error ? 'bad' : 'ok' }, e.error || 'ok'));
 
 export function renderAudit(ctx, main) {
-  main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'title' }, 'Protokoll'), h('span', { class: 'muted' }, 'MCP-, Orchestrator- und externe Zugriffe (auch in audit.log im Datenverzeichnis)'), h('div', { class: 'spacer' }),
-    h('button', { onclick: () => ctx.call('openDataDir') }, 'Datenverzeichnis öffnen')));
+  main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'title' }, 'Audit log'), h('span', { class: 'muted' }, 'MCP, orchestrator and external requests (also in audit.log in the data folder)'), h('div', { class: 'spacer' }),
+    h('button', { onclick: () => ctx.call('openDataDir') }, 'Open data folder')));
   const tbody = h('tbody', { id: 'audit-body' });
   const page = h('div', { class: 'page', id: 'audit-page' }, h('table', { class: 'list audit' },
-    h('thead', null, h('tr', null, ['Zeit', 'Quelle', 'Token', 'Aktion', 'Details', 'Remote', 'Ergebnis'].map((t) => h('th', null, t)))), tbody));
+    h('thead', null, h('tr', null, ['Time', 'Source', 'Token', 'Action', 'Details', 'Remote', 'Result'].map((t) => h('th', null, t)))), tbody));
   main.appendChild(h('div', { class: 'content' }, page));
   for (const e of [...ctx.S.audit].reverse()) tbody.appendChild(auditRow(e));
 }
@@ -337,47 +337,47 @@ export function appendAudit(ctx, e) {
 export function renderSettings(ctx, main) {
   const { S, call } = ctx;
   const st = S.config.settings;
-  main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'title' }, 'Einstellungen'), h('span', { class: 'muted' }, `Version ${S.version || ''} · ${S.dataDir || ''}`)));
+  main.appendChild(h('div', { class: 'main-head' }, h('span', { class: 'title' }, 'Settings'), h('span', { class: 'muted' }, `Version ${S.version || ''} · ${S.dataDir || ''}`)));
   const thr = h('input', { type: 'number', value: st.defaultThresholdSec || 5, min: 1 });
   const fs = h('input', { type: 'number', value: st.fontSize || 13, min: 8, max: 24 });
-  const ofs = h('input', { type: 'number', value: st.overviewFontSize || '', placeholder: 'automatisch', min: 5, max: 16 });
+  const ofs = h('input', { type: 'number', value: st.overviewFontSize || '', placeholder: 'automatic', min: 5, max: 16 });
   const notif = h('input', { type: 'checkbox', checked: st.notifications });
-  const oc = h('input', { value: st.opencodePath || '', placeholder: 'automatisch suchen' });
+  const oc = h('input', { value: st.opencodePath || '', placeholder: 'detect automatically' });
   const ocInfo = h('span', { class: 'muted' });
   const page = h('div', { class: 'page page-narrow' },
     h('div', { class: 'card' },
-      h('h2', null, 'Allgemein'),
+      h('h2', null, 'General'),
       h('div', { class: 'form' },
-        field('Statusschwelle (s)', thr, 'Standard für Projekte ohne eigene Schwelle'),
-        field('Schriftgröße', fs),
-        field('Schrift Übersicht', ofs, 'Leer = abhängig von der Anzahl der Kacheln'),
-        field('Benachrichtigungen', h('label', { class: 'row' }, notif, 'Desktop-Benachrichtigung beim Wechsel auf „wartet“')),
-        field('OpenCode-Programm', h('div', { class: 'row' }, oc, h('button', { onclick: async () => { const p = await call('detectOpencode'); ocInfo.textContent = p ? 'gefunden: ' + p : 'nicht gefunden'; } }, 'Suchen')), null),
+        field('Status threshold (s)', thr, 'Default for projects without their own threshold'),
+        field('Font size', fs),
+        field('Overview font size', ofs, 'Empty = depends on the number of tiles'),
+        field('Notifications', h('label', { class: 'row' }, notif, 'Desktop notification when a session switches to “waiting”')),
+        field('OpenCode program', h('div', { class: 'row' }, oc, h('button', { onclick: async () => { const p = await call('detectOpencode'); ocInfo.textContent = p ? 'found: ' + p : 'not found'; } }, 'Detect')), null),
         h('div', { class: 'hint' }, ocInfo),
         h('div', { class: 'full row' }, h('div', { class: 'spacer' }), h('button', { class: 'primary', onclick: async () => {
           await call('updateSettings', { defaultThresholdSec: Number(thr.value) || 5, fontSize: Number(fs.value) || 13, overviewFontSize: Number(ofs.value) || null, notifications: notif.checked, opencodePath: oc.value.trim() });
           for (const t of ctx.terms.values()) t.baseFontSize = Number(fs.value) || 13;
           await reloadConfig(ctx);
-          toast('Gespeichert');
-        } }, 'Speichern')))),
+          toast('Saved');
+        } }, 'Save')))),
     h('div', { class: 'card' },
-      h('h2', null, 'Konfiguration'),
-      h('p', { class: 'muted' }, 'Projekte, Hosts und Orchestratoren werden als JSON im Datenverzeichnis gespeichert (config.json). Tokens werden nicht exportiert.'),
+      h('h2', null, 'Configuration'),
+      h('p', { class: 'muted' }, 'Projects, hosts and orchestrators are stored as JSON in the data folder (config.json). Tokens are not exported.'),
       h('div', { class: 'row' },
-        h('button', { onclick: async () => { const f = await call('exportConfig'); if (f) toast('Exportiert: ' + f); } }, 'Exportieren…'),
-        h('button', { onclick: async () => { if (await call('importConfig', true)) { toast('Importiert (zusammengeführt)'); reloadConfig(ctx); } } }, 'Importieren (zusammenführen)…'),
-        h('button', { onclick: async () => { if (await confirmDialog('Importieren', 'Aktuelle Konfiguration ersetzen?', 'Ersetzen') && await call('importConfig', false)) { toast('Importiert'); reloadConfig(ctx); } } }, 'Importieren (ersetzen)…'),
-        h('button', { onclick: () => call('openDataDir') }, 'Datenverzeichnis öffnen'))),
+        h('button', { onclick: async () => { const f = await call('exportConfig'); if (f) toast('Exported: ' + f); } }, 'Export…'),
+        h('button', { onclick: async () => { if (await call('importConfig', true)) { toast('Imported (merged)'); reloadConfig(ctx); } } }, 'Import (merge)…'),
+        h('button', { onclick: async () => { if (await confirmDialog('Import', 'Replace the current configuration?', 'Replace') && await call('importConfig', false)) { toast('Imported'); reloadConfig(ctx); } } }, 'Import (replace)…'),
+        h('button', { onclick: () => call('openDataDir') }, 'Open data folder'))),
     h('div', { class: 'card' },
-      h('h2', null, 'Tastenkürzel'),
+      h('h2', null, 'Keyboard shortcuts'),
       h('table', { class: 'list' }, [
-        ['Strg/⌘ + Shift + T', 'Neue Session im aktuellen Projekt'],
-        ['Strg/⌘ + 1…9', 'Projekt wechseln'],
-        ['Strg/⌘ + Tab', 'Nächste Session'],
-        ['Strg/⌘ + Shift + G', 'Kachelansicht umschalten'],
-        ['Strg/⌘ + Shift + O', 'Gesamtübersicht'],
-        ['Strg/⌘ + Shift + W', 'Session schließen'],
-        ['Strg/⌘ + Shift + C / V', 'Kopieren / Einfügen im Terminal'],
+        ['Ctrl/⌘ + Shift + T', 'New session in the current project'],
+        ['Ctrl/⌘ + 1…9', 'Switch project'],
+        ['Ctrl/⌘ + Tab', 'Next session'],
+        ['Ctrl/⌘ + Shift + G', 'Toggle tile view'],
+        ['Ctrl/⌘ + Shift + O', 'Overview'],
+        ['Ctrl/⌘ + Shift + W', 'Close session'],
+        ['Ctrl/⌘ + Shift + C / V', 'Copy / paste in the terminal'],
       ].map(([k, d]) => h('tr', null, h('td', null, h('span', { class: 'kbd' }, k)), h('td', null, d))))));
   main.appendChild(h('div', { class: 'content' }, page));
 }
@@ -388,8 +388,8 @@ export function renderOrchestrators(ctx, main) {
   const list = S.orchestrators;
   if (!S.orchId || !list.find((o) => o.id === S.orchId)) S.orchId = list[0] ? list[0].id : null;
   main.appendChild(h('div', { class: 'main-head' },
-    h('span', { class: 'title' }, 'Orchestratoren'),
-    h('span', { class: 'muted' }, 'OpenCode im Server-Modus + MCP-Tools der App'),
+    h('span', { class: 'title' }, 'Orchestrators'),
+    h('span', { class: 'muted' }, 'OpenCode in server mode + the app’s MCP tools'),
     h('div', { class: 'spacer' }),
     list.map((o) => h('button', { class: o.id === S.orchId ? 'active' : '', onclick: () => { S.orchId = o.id; ctx.render(); } }, h('span', { class: 'dot ' + orchDot(o), style: { marginRight: '6px' } }), o.name)),
     h('button', { class: 'primary', onclick: () => editOrchestrator(ctx, null) }, '+ Orchestrator')));
@@ -399,7 +399,7 @@ export function renderOrchestrators(ctx, main) {
 }
 
 const orchDot = (o) => ({ stopped: 'none', starting: 'starting', idle: 'waiting', running: 'working', paused: 'exited', error: 'error' }[o.state] || 'none');
-const ORCH_STATE = { stopped: 'gestoppt', starting: 'startet', idle: 'bereit', running: 'arbeitet', paused: 'pausiert', error: 'Fehler' };
+const ORCH_STATE = { stopped: 'stopped', starting: 'starting', idle: 'ready', running: 'working', paused: 'paused', error: 'error' };
 
 function renderOrchDetail(ctx) {
   const { S, call } = ctx;
@@ -409,9 +409,9 @@ function renderOrchDetail(ctx) {
   const o = S.orchestrators.find((x) => x.id === S.orchId);
   if (!o) {
     content.appendChild(h('div', { class: 'empty' },
-      h('div', null, 'Noch kein Orchestrator.'),
-      h('div', { class: 'muted', style: { maxWidth: '520px', textAlign: 'center' } }, 'Ein Orchestrator ist ein OpenCode-Agent mit System-Prompt, der überwachte Sessions über die MCP-Tools steuert, z. B. Entwickler + Reviewer. Wird eine überwachte Session fertig, bekommt er automatisch eine Nachricht mit dem letzten Output.'),
-      h('button', { class: 'primary', onclick: () => editOrchestrator(ctx, null) }, '+ Orchestrator anlegen')));
+      h('div', null, 'No orchestrator yet.'),
+      h('div', { class: 'muted', style: { maxWidth: '520px', textAlign: 'center' } }, 'An orchestrator is an OpenCode agent with a system prompt that controls watched sessions through the MCP tools, e.g. developer + reviewer. When a watched session finishes, it automatically gets a message with the latest output.'),
+      h('button', { class: 'primary', onclick: () => editOrchestrator(ctx, null) }, '+ Create orchestrator')));
     return;
   }
   const running = o.state !== 'stopped' && o.state !== 'error';
@@ -419,27 +419,27 @@ function renderOrchDetail(ctx) {
     const [pid, name] = k.split('/');
     const p = ctx.project(pid);
     const s = [...S.sessions.values()].find((x) => x.projectId === pid && x.name === name);
-    return h('span', { class: 'tag', title: s ? ctx.STATUS_LABEL[s.status] : 'nicht aktiv' }, h('span', { class: 'dot ' + (s ? s.status : 'none'), style: { width: '7px', height: '7px', marginRight: '4px' } }), `${p ? p.name : '?'}/${name}`);
+    return h('span', { class: 'tag', title: s ? ctx.STATUS_LABEL[s.status] : 'not running' }, h('span', { class: 'dot ' + (s ? s.status : 'none'), style: { width: '7px', height: '7px', marginRight: '4px' } }), `${p ? p.name : '?'}/${name}`);
   });
   const status = h('div', { class: 'chat-status' },
     h('span', { class: 'dot ' + orchDot(o) }),
     h('b', null, ORCH_STATE[o.state] || o.state),
     o.currentAction ? h('span', { class: 'muted' }, '· ' + o.currentAction) : null,
-    h('span', { class: 'muted' }, `· Runden ${o.rounds}/${o.maxRounds}`),
-    o.queue && o.queue.length ? h('span', { class: 'warn' }, `· ${o.queue.length} Ereignis(se) in Warteschlange`) : null,
+    h('span', { class: 'muted' }, `· rounds ${o.rounds}/${o.maxRounds}`),
+    o.queue && o.queue.length ? h('span', { class: 'warn' }, `· ${o.queue.length} event(s) queued`) : null,
     o.error ? h('span', { class: 'bad' }, '· ' + o.error) : null,
     h('span', { class: 'spacer' }),
     !running ? h('button', { class: 'primary', onclick: () => call('orchStart', o.id).catch((e) => toast(e.message, { error: true })) }, '▶ Start') : null,
     running && o.state !== 'paused' ? h('button', { onclick: () => call('orchPause', o.id) }, '⏸ Pause') : null,
-    o.state === 'paused' ? h('button', { onclick: () => call('orchResume', o.id) }, '▶ Fortsetzen') : null,
-    running ? h('button', { onclick: () => call('orchInterrupt', o.id), title: 'Aktuelle Antwort abbrechen' }, 'Abbrechen') : null,
-    running ? h('button', { class: 'danger', onclick: () => call('orchStop', o.id) }, '■ Stopp') : null,
-    h('button', { onclick: () => editOrchestrator(ctx, o) }, 'Bearbeiten'));
-  const watched = h('div', { class: 'chat-status' }, h('span', { class: 'muted' }, 'Überwacht:'), watchedLabels.length ? watchedLabels : h('span', { class: 'bad' }, 'keine Sessions — unter „Bearbeiten“ auswählen'),
-    o.conflicts && o.conflicts.length ? h('span', { class: 'bad' }, 'Konflikt: ' + o.conflicts.map((c) => c.orchestrator).join(', ')) : null,
-    o.model ? h('span', { class: 'muted' }, '· Modell ' + o.model) : null);
+    o.state === 'paused' ? h('button', { onclick: () => call('orchResume', o.id) }, '▶ Resume') : null,
+    running ? h('button', { onclick: () => call('orchInterrupt', o.id), title: 'Interrupt the current answer' }, 'Interrupt') : null,
+    running ? h('button', { class: 'danger', onclick: () => call('orchStop', o.id) }, '■ Stop') : null,
+    h('button', { onclick: () => editOrchestrator(ctx, o) }, 'Edit'));
+  const watched = h('div', { class: 'chat-status' }, h('span', { class: 'muted' }, 'Watching:'), watchedLabels.length ? watchedLabels : h('span', { class: 'bad' }, 'no sessions — choose them under “Edit”'),
+    o.conflicts && o.conflicts.length ? h('span', { class: 'bad' }, 'Conflict: ' + o.conflicts.map((c) => c.orchestrator).join(', ')) : null,
+    o.model ? h('span', { class: 'muted' }, '· model ' + o.model) : null);
   const log = h('div', { class: 'chat-log', id: 'orch-log' });
-  const ta = h('textarea', { placeholder: running ? 'Aufgabe oder Nachricht an den Orchestrator… (Enter senden)' : 'Orchestrator starten, um Nachrichten zu senden', disabled: !running });
+  const ta = h('textarea', { placeholder: running ? 'Task or message for the orchestrator… (Enter to send)' : 'Start the orchestrator to send messages', disabled: !running });
   const sendIt = async () => {
     const text = ta.value.trim();
     if (!text) return;
@@ -447,7 +447,7 @@ function renderOrchDetail(ctx) {
     try { await call('orchSend', o.id, text); } catch (e) { toast(e.message, { error: true }); ta.value = text; }
   };
   ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendIt(); } });
-  content.appendChild(h('div', { class: 'chat' }, status, watched, log, h('div', { class: 'chat-input' }, ta, h('button', { class: 'primary', onclick: sendIt, disabled: !running }, 'Senden'))));
+  content.appendChild(h('div', { class: 'chat' }, status, watched, log, h('div', { class: 'chat-input' }, ta, h('button', { class: 'primary', onclick: sendIt, disabled: !running }, 'Send'))));
   renderMessages(log, S.orchMessages.get(o.id), S.orchLive.get(o.id));
   if (running && !S.orchMessages.has(o.id)) call('orchMessages', o.id).then((m) => { S.orchMessages.set(o.id, m || []); onOrchMessages(ctx, o.id); });
 }
@@ -473,12 +473,12 @@ function editOrchestrator(ctx, o) {
   const { S, call } = ctx;
   const x = o ? structuredClone(o) : { name: 'Orchestrator ' + (S.orchestrators.length + 1), systemPrompt: S.templates[0].prompt, model: '', watched: [], maxRounds: 20 };
   const name = h('input', { value: x.name });
-  const model = h('input', { value: x.model || '', placeholder: 'provider/model, leer = Standardmodell von OpenCode' });
+  const model = h('input', { value: x.model || '', placeholder: 'provider/model, empty = OpenCode’s default model' });
   const rounds = h('input', { type: 'number', value: x.maxRounds, min: 1 });
   const prompt = h('textarea', { style: { height: '220px' } });
   prompt.value = x.systemPrompt;
   const tpl = h('select', { onchange: (e) => { const t = S.templates.find((t) => t.id === e.target.value); if (t) prompt.value = t.prompt; } },
-    h('option', { value: '' }, 'Vorlage einsetzen…'), S.templates.map((t) => h('option', { value: t.id }, t.name)));
+    h('option', { value: '' }, 'Insert template…'), S.templates.map((t) => h('option', { value: t.id }, t.name)));
   // Candidate sessions: all running sessions, plus already watched ones that are not running.
   const others = new Map();
   for (const other of S.orchestrators) if (!o || other.id !== o.id) for (const k of other.watched || []) others.set(k, other.name);
@@ -489,25 +489,25 @@ function editOrchestrator(ctx, o) {
     const [pid, nm] = k.split('/');
     const p = ctx.project(pid);
     const taken = others.get(k);
-    return h('label', { title: taken ? 'Wird bereits von ' + taken + ' gesteuert' : '' },
+    return h('label', { title: taken ? 'Already controlled by ' + taken : '' },
       h('input', { type: 'checkbox', 'data-k': k, checked: (x.watched || []).includes(k), disabled: !!taken }),
       h('span', { class: 'dot ' + (s ? s.status : 'none') }), `${p ? p.name : '?'} / ${nm}`,
       s && s.kind === 'agent' ? h('span', { class: 'tag' }, 'agent') : null,
-      !s ? h('span', { class: 'muted' }, '(nicht aktiv)') : null,
+      !s ? h('span', { class: 'muted' }, '(not running)') : null,
       taken ? h('span', { class: 'bad' }, `(${taken})`) : null);
-  }) : h('div', { class: 'muted' }, 'Keine aktiven Sessions. Öffne zuerst die Sessions, die gesteuert werden sollen.'));
+  }) : h('div', { class: 'muted' }, 'No running sessions. Open the sessions that should be controlled first.'));
   modal({
-    title: o ? 'Orchestrator bearbeiten' : 'Neuer Orchestrator',
+    title: o ? 'Edit orchestrator' : 'New orchestrator',
     width: '820px',
     body: h('div', { class: 'form' },
       field('Name', name),
-      field('Modell', model),
-      field('Max. Runden', rounds, 'Nach so vielen Ereignis-Runden ohne Benutzereingabe wird pausiert'),
-      field('Überwachte Sessions', checks, 'Eine Session kann nur von einem Orchestrator gleichzeitig gesteuert werden'),
-      field('System-Prompt', h('div', null, tpl, h('div', { style: { height: '6px' } }), prompt))),
+      field('Model', model),
+      field('Max. rounds', rounds, 'Pauses after this many event rounds without user input'),
+      field('Watched sessions', checks, 'A session can only be controlled by one orchestrator at a time'),
+      field('System prompt', h('div', null, tpl, h('div', { style: { height: '6px' } }), prompt))),
     extraButtons: o ? [h('button', { class: 'danger', onclick: async () => {
-      if (await confirmDialog('Orchestrator löschen', `„${o.name}“ löschen?`, 'Löschen')) { await call('orchRemove', o.id); document.querySelector('.modal-bg')?.remove(); }
-    } }, 'Löschen')] : [],
+      if (await confirmDialog('Delete orchestrator', `Delete “${o.name}”?`, 'Delete')) { await call('orchRemove', o.id); document.querySelector('.modal-bg')?.remove(); }
+    } }, 'Delete')] : [],
     onOk: async () => {
       const watched = [...checks.querySelectorAll('input[data-k]')].filter((c) => c.checked).map((c) => c.dataset.k);
       const saved = await call('orchSave', { ...x, name: name.value.trim() || 'Orchestrator', model: model.value.trim(), maxRounds: Number(rounds.value) || 20, systemPrompt: prompt.value, watched });

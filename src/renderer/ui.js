@@ -31,7 +31,7 @@ export function toast(text, { error = false, ms = 3500 } = {}) {
 }
 
 // Modal with body content and buttons. Returns {close}. onOk may return false to keep it open.
-export function modal({ title, body, okText = 'Speichern', onOk, cancelText = 'Abbrechen', width, extraButtons = [] }) {
+export function modal({ title, body, okText = 'Save', onOk, cancelText = 'Cancel', width, extraButtons = [] }) {
   const root = document.getElementById('modal-root');
   const close = () => { bg.remove(); document.removeEventListener('keydown', onKey, true); };
   const ok = async () => {

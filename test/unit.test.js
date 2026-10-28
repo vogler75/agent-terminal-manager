@@ -127,3 +127,18 @@ test('OpenCode messages are simplified oldest first', () => {
   assert.strictEqual(s[1].tools[0].result, 'ok');
   assert.match(messagesToText(s), /\[user\] Sky\?\n\n\[assistant\] Blue\./);
 });
+
+test('session lookup accepts "project/name" together with a project argument', () => {
+  const { SessionManager } = require('../src/main/sessions');
+  const projects = [{ id: 'p1', name: 'lokal' }, { id: 'p2', name: 'other' }];
+  const mgr = Object.create(SessionManager.prototype);
+  mgr.store = { findProject: (r) => projects.find((p) => p.id === r || p.name === r) };
+  const dev1 = { id: 'a', projectId: 'p1', name: 'dev' };
+  const dev2 = { id: 'b', projectId: 'p2', name: 'dev' };
+  mgr.sessions = new Map([['a', dev1], ['b', dev2]]);
+  assert.strictEqual(mgr.find('lokal/dev', 'lokal'), dev1);
+  assert.strictEqual(mgr.find('other/dev'), dev2);
+  assert.strictEqual(mgr.find('dev', 'other'), dev2);
+  assert.strictEqual(mgr.find('b'), dev2);
+  assert.strictEqual(mgr.find('nope/dev'), null);
+});

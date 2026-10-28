@@ -45,7 +45,7 @@ function projectStatus(pid) {
   return 'exited';
 }
 
-const STATUS_LABEL = { working: 'arbeitet', waiting: 'wartet', starting: 'startet', error: 'Fehler', exited: 'beendet', none: 'keine Sessions' };
+const STATUS_LABEL = { working: 'working', waiting: 'waiting', starting: 'starting', error: 'error', exited: 'exited', none: 'no sessions' };
 const dot = (status, attrs = {}) => h('span', { class: 'dot ' + status, title: STATUS_LABEL[status] || status, ...attrs });
 
 function termFor(id) {
@@ -127,9 +127,9 @@ function renderSidebar() {
   const sb = clear(document.getElementById('sidebar'));
   const runningCount = S.sessions.size;
   sb.appendChild(h('div', { class: 'sb-top' },
-    h('button', { class: S.view === 'overview' ? 'active' : '', title: 'Gesamtübersicht (Strg+Shift+O)', onclick: () => showView('overview') }, '▦ Übersicht ', h('span', { class: 'muted' }, runningCount)),
-    h('button', { title: 'Neues Projekt', onclick: () => pages.editProject(ctx, null) }, '+ Projekt')));
-  sb.appendChild(h('div', { class: 'sb-section' }, 'Projekte'));
+    h('button', { class: S.view === 'overview' ? 'active' : '', title: 'Overview of all sessions (Ctrl+Shift+O)', onclick: () => showView('overview') }, '▦ Overview ', h('span', { class: 'muted' }, runningCount)),
+    h('button', { title: 'New project', onclick: () => pages.editProject(ctx, null) }, '+ Project')));
+  sb.appendChild(h('div', { class: 'sb-section' }, 'Projects'));
 
   const tree = h('div', { class: 'tree' });
   S.config.projects.forEach((p, idx) => {
@@ -139,7 +139,7 @@ function renderSidebar() {
     const host = p.hostId ? S.config.hosts.find((x) => x.id === p.hostId) : null;
     const head = h('div', {
       class: 'proj-head',
-      title: `${p.type.toUpperCase()}${host ? ' · ' + host.name : p.host ? ' · ' + p.host : ''}${p.directory ? ' · ' + p.directory : ''}  (Strg+${idx + 1})`,
+      title: `${p.type.toUpperCase()}${host ? ' · ' + host.name : p.host ? ' · ' + p.host : ''}${p.directory ? ' · ' + p.directory : ''}  (Ctrl+${idx + 1})`,
       onclick: () => { S.projectId = p.id; S.view = 'project'; render(); focusActive(); },
       oncontextmenu: (e) => { e.preventDefault(); projectMenu(e, p); },
     },
@@ -148,9 +148,9 @@ function renderSidebar() {
     h('span', { class: 'proj-name' }, p.name),
     h('span', { class: 'proj-type' }, p.type === 'ssh' ? (host ? host.name : 'ssh') : p.type),
     h('span', { class: 'proj-actions' },
-      h('button', { class: 'icon', title: 'Neue Session (Standard)', onclick: (e) => { e.stopPropagation(); openSession(p.id); } }, '+'),
-      h('button', { class: 'icon', title: 'Kachelansicht', onclick: (e) => { e.stopPropagation(); S.projectId = p.id; S.view = 'project'; setMode(p, mode(p) === 'tiles' ? 'tabs' : 'tiles'); } }, '▦'),
-      h('button', { class: 'icon', title: 'Projekt bearbeiten', onclick: (e) => { e.stopPropagation(); pages.editProject(ctx, p); } }, '⚙')));
+      h('button', { class: 'icon', title: 'New session (default)', onclick: (e) => { e.stopPropagation(); openSession(p.id); } }, '+'),
+      h('button', { class: 'icon', title: 'Tile view', onclick: (e) => { e.stopPropagation(); S.projectId = p.id; S.view = 'project'; setMode(p, mode(p) === 'tiles' ? 'tabs' : 'tiles'); } }, '▦'),
+      h('button', { class: 'icon', title: 'Edit project', onclick: (e) => { e.stopPropagation(); pages.editProject(ctx, p); } }, '⚙')));
     const node = h('div', { class: 'proj' + (selected ? ' selected' : '') }, head);
     if (!collapsed) {
       for (const s of list) {
@@ -166,13 +166,13 @@ function renderSidebar() {
         h('span', { class: 'sess-name' }, s.name),
         s.kind === 'agent' ? h('span', { class: 'badge' }, 'agent') : null,
         s.orchestrator ? h('span', { class: 'badge', title: 'Orchestrator-Session' }, 'orch') : null,
-        !s.shared ? h('span', { class: 'badge', title: 'Nicht für MCP freigegeben' }, 'privat') : null));
+        !s.shared ? h('span', { class: 'badge', title: 'Not shared with MCP' }, 'private') : null));
       }
     }
     tree.appendChild(node);
   });
   if (!S.config.projects.length) {
-    tree.appendChild(h('div', { style: { padding: '12px', color: 'var(--fg3)' } }, 'Noch keine Projekte. Lege mit „+ Projekt“ eines an.'));
+    tree.appendChild(h('div', { style: { padding: '12px', color: 'var(--fg3)' } }, 'No projects yet. Create one with “+ Project”.'));
   }
   sb.appendChild(tree);
 
@@ -180,45 +180,45 @@ function renderSidebar() {
   const navBtn = (view, label, count) => h('button', { class: S.view === view ? 'active' : '', onclick: () => showView(view) }, label, count !== undefined ? h('span', { class: 'count' }, count) : null);
   sb.appendChild(h('div', { class: 'sb-bottom' },
     navBtn('hosts', 'Hosts', S.config.hosts.length),
-    navBtn('orch', 'Orchestratoren', orchRunning || undefined),
+    navBtn('orch', 'Orchestrators', orchRunning || undefined),
     navBtn('mcp', 'MCP', S.mcp.running ? '●' : '○'),
-    navBtn('audit', 'Protokoll'),
-    navBtn('settings', 'Einstellungen')));
+    navBtn('audit', 'Audit log'),
+    navBtn('settings', 'Settings')));
 }
 
 function projectMenu(e, p) {
   contextMenu(e.clientX, e.clientY, [
-    { label: 'Neue Session', action: () => openSession(p.id) },
-    { label: 'Neue Agent-Session (OpenCode)', action: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }) },
-    { label: 'Alle Terminals starten', action: () => startAll(p.id) },
+    { label: 'New session', action: () => openSession(p.id) },
+    { label: 'New agent session (OpenCode)', action: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }) },
+    { label: 'Start all terminals', action: () => startAll(p.id) },
     '-',
-    { label: 'Kachelansicht', action: () => { S.projectId = p.id; S.view = 'project'; setMode(p, 'tiles'); } },
-    { label: 'Bearbeiten…', action: () => pages.editProject(ctx, p) },
-    { label: 'Nach oben', action: () => call('moveProject', p.id, -1) },
-    { label: 'Nach unten', action: () => call('moveProject', p.id, 1) },
+    { label: 'Tile view', action: () => { S.projectId = p.id; S.view = 'project'; setMode(p, 'tiles'); } },
+    { label: 'Edit…', action: () => pages.editProject(ctx, p) },
+    { label: 'Move up', action: () => call('moveProject', p.id, -1) },
+    { label: 'Move down', action: () => call('moveProject', p.id, 1) },
     '-',
-    { label: 'Löschen…', action: async () => {
-      if (await confirmDialog('Projekt löschen', `Projekt „${p.name}“ löschen? Laufende Sessions werden geschlossen.`, 'Löschen')) call('deleteProject', p.id);
+    { label: 'Delete…', action: async () => {
+      if (await confirmDialog('Delete project', `Delete project “${p.name}”? Running sessions will be closed.`, 'Delete')) call('deleteProject', p.id);
     } },
   ]);
 }
 
 function sessionMenu(e, s) {
   contextMenu(e.clientX, e.clientY, [
-    { label: 'Umbenennen…', action: () => renameSession(s.id) },
-    { label: s.shared ? '✓ Für MCP freigegeben' : 'Für MCP freigeben', action: () => call('setSessionFlags', s.id, { shared: !s.shared }) },
-    { label: s.orchestrator ? '✓ Orchestrator-Session' : 'Als Orchestrator markieren', action: () => call('setSessionFlags', s.id, { orchestrator: !s.orchestrator }) },
-    { label: 'Neu verbinden', action: () => call('reconnect', s.id) },
+    { label: 'Rename…', action: () => renameSession(s.id) },
+    { label: s.shared ? '✓ Shared with MCP' : 'Share with MCP', action: () => call('setSessionFlags', s.id, { shared: !s.shared }) },
+    { label: s.orchestrator ? '✓ Orchestrator session' : 'Mark as orchestrator', action: () => call('setSessionFlags', s.id, { orchestrator: !s.orchestrator }) },
+    { label: 'Reconnect', action: () => call('reconnect', s.id) },
     '-',
-    { label: 'Schließen (tmux läuft weiter)', action: () => closeSession(s.id, false) },
-    { label: 'Schließen und tmux-Session beenden', action: () => closeSession(s.id, true) },
+    { label: 'Close (tmux keeps running)', action: () => closeSession(s.id, false) },
+    { label: 'Close and kill tmux session', action: () => closeSession(s.id, true) },
   ]);
 }
 
 async function renameSession(id) {
   const s = S.sessions.get(id);
   if (!s) return;
-  const name = await prompt('Session umbenennen', s.name);
+  const name = await prompt('Rename session', s.name);
   if (name) call('renameSession', id, name);
 }
 
@@ -246,9 +246,9 @@ function forwardInfo(p) {
   const f = S.forwards[p.id];
   if (!(p.forwards || []).length) return null;
   const list = p.forwards.map((x) => `${x.local}→${x.remote}`).join(', ');
-  if (!f) return h('span', { class: 'muted', title: 'Aktiv, solange eine Session läuft' }, '⇄ ' + list);
+  if (!f) return h('span', { class: 'muted', title: 'Active while a session is running' }, '⇄ ' + list);
   const cls = f.status === 'active' ? 'ok' : f.status === 'error' ? 'bad' : 'warn';
-  return h('span', { class: cls, title: f.error || f.status }, '⇄ ' + list + (f.status === 'error' ? ' (Fehler)' : ''));
+  return h('span', { class: cls, title: f.error || f.status }, '⇄ ' + list + (f.status === 'error' ? ' (error)' : ''));
 }
 
 function renderProject(main) {
@@ -257,8 +257,8 @@ function renderProject(main) {
   if (!p) {
     main.appendChild(h('div', { class: 'content' }, h('div', { class: 'empty' },
       h('div', { style: { fontSize: '18px', color: 'var(--fg2)' } }, 'Agent Terminal Manager'),
-      h('div', null, 'Lege ein Projekt an, um Terminals zu öffnen.'),
-      h('button', { class: 'primary', onclick: () => pages.editProject(ctx, null) }, '+ Projekt anlegen'))));
+      h('div', null, 'Create a project to open terminals.'),
+      h('button', { class: 'primary', onclick: () => pages.editProject(ctx, null) }, '+ Create project'))));
     return;
   }
   const list = projectSessions(p.id);
@@ -270,19 +270,19 @@ function renderProject(main) {
     h('span', { class: 'muted' }, [p.type.toUpperCase(), host ? `${host.user ? host.user + '@' : ''}${host.hostname}` : p.host, p.wslDistro, p.directory, p.tmux ? 'tmux' : null].filter(Boolean).join(' · ')),
     forwardInfo(p),
     h('div', { class: 'spacer' }),
-    h('button', { onclick: () => openSession(p.id), title: 'Neue Session mit Standard-Konfiguration (Strg+Shift+T)' }, '+ Session'),
-    h('button', { onclick: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }), title: 'OpenCode im Server-Modus, Steuerung über API' }, '+ Agent'),
-    (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Alle konfigurierten Terminals starten' }, '▶ Alle') : null,
+    h('button', { onclick: () => openSession(p.id), title: 'New session with the default configuration (Ctrl+Shift+T)' }, '+ Session'),
+    h('button', { onclick: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }), title: 'OpenCode in server mode, controlled via its API' }, '+ Agent'),
+    (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Start all configured terminals' }, '▶ All') : null,
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
-    h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Kachelansicht (Strg+Shift+G)' }, 'Kacheln'),
-    h('button', { class: 'icon', title: 'Projekt bearbeiten', onclick: () => pages.editProject(ctx, p) }, '⚙')));
+    h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Tile view (Ctrl+Shift+G)' }, 'Tiles'),
+    h('button', { class: 'icon', title: 'Edit project', onclick: () => pages.editProject(ctx, p) }, '⚙')));
 
   if ((p.commands || []).length) {
     const aid = activeSessionId(p.id);
     main.appendChild(h('div', { class: 'cmdbar' },
-      h('span', { class: 'muted' }, 'Befehle:'),
+      h('span', { class: 'muted' }, 'Commands:'),
       p.commands.map((c) => h('button', {
-        title: `${c.command}\n→ in aktiver Session ausführen`,
+        title: `${c.command}\n→ run in the active session`,
         disabled: !aid,
         onclick: () => { const id = activeSessionId(p.id); if (id) { call('runCommand', id, c.command); focusActive(); } },
       }, c.name))));
@@ -290,10 +290,10 @@ function renderProject(main) {
 
   if (!list.length) {
     main.appendChild(h('div', { class: 'content' }, h('div', { class: 'empty' },
-      h('div', null, 'Keine laufenden Sessions in diesem Projekt.'),
+      h('div', null, 'No running sessions in this project.'),
       h('div', { class: 'row' },
-        h('button', { class: 'primary', onclick: () => openSession(p.id) }, '+ Session öffnen'),
-        (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id) }, `▶ ${p.terminals.length} Terminals starten`) : null))));
+        h('button', { class: 'primary', onclick: () => openSession(p.id) }, '+ Open session'),
+        (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id) }, `▶ Start ${p.terminals.length} terminals`) : null))));
     return;
   }
 
@@ -306,7 +306,7 @@ function renderProject(main) {
     ondblclick: () => renameSession(s.id),
     onauxclick: (e) => { if (e.button === 1) closeSession(s.id); },
     oncontextmenu: (e) => { e.preventDefault(); sessionMenu(e, s); },
-  }, dot(s.status, { 'data-dot': s.id }), s.name, h('span', { class: 'x', title: 'Schließen', onclick: (e) => { e.stopPropagation(); closeSession(s.id); } }, '×')))));
+  }, dot(s.status, { 'data-dot': s.id }), s.name, h('span', { class: 'x', title: 'Close', onclick: (e) => { e.stopPropagation(); closeSession(s.id); } }, '×')))));
   const content = h('div', { class: 'content' });
   main.appendChild(content);
   mountSession(content, S.sessions.get(aid), { fontSize: S.config.settings.fontSize || 13 });
@@ -327,8 +327,8 @@ function mountSession(container, s, { fontSize, compact = false } = {}) {
     box.appendChild(h('div', { class: 'overlay-err' },
       h('div', { class: 'msg' }, s.error),
       h('div', { class: 'row' },
-        h('button', { class: 'primary', onclick: () => call('reconnect', s.id) }, 'Neu verbinden'),
-        h('button', { onclick: () => closeSession(s.id) }, 'Schließen'))));
+        h('button', { class: 'primary', onclick: () => call('reconnect', s.id) }, 'Reconnect'),
+        h('button', { onclick: () => closeSession(s.id) }, 'Close'))));
   }
 }
 
@@ -353,7 +353,7 @@ function renderTiles(main, p, list) {
   list.forEach((s, i) => {
     const body = h('div', { class: 'tile-body' });
     const tile = h('div', { class: 'tile' + (s.id === aid ? ' focused' : ''), style: g.big && i === 0 ? { gridRow: '1 / 3' } : null },
-      h('div', { class: 'tile-head', title: 'Klick: Einzelansicht', onclick: () => selectSession(s.id), oncontextmenu: (e) => { e.preventDefault(); sessionMenu(e, s); } },
+      h('div', { class: 'tile-head', title: 'Click: single view', onclick: () => selectSession(s.id), oncontextmenu: (e) => { e.preventDefault(); sessionMenu(e, s); } },
         dot(s.status, { 'data-dot': s.id }), h('span', null, s.name), s.kind === 'agent' ? h('span', { class: 'tag' }, 'agent') : null,
         h('span', { class: 'spacer' }), h('span', { class: 'muted' }, '⤢')),
       body);
@@ -367,7 +367,7 @@ function renderTiles(main, p, list) {
   });
   if (list.length === 3) {
     const head = main.querySelector('.main-head');
-    head.insertBefore(h('button', { title: 'Aufteilung bei 3 Sessions', onclick: () => { p.layout.three = p.layout.three === 'big' ? 'cols' : 'big'; call('setLayout', p.id, { three: p.layout.three }); render(); } }, p.layout.three === 'big' ? '1+2' : '3 Spalten'), head.querySelector('.spacer').nextSibling);
+    head.insertBefore(h('button', { title: 'Layout for 3 sessions', onclick: () => { p.layout.three = p.layout.three === 'big' ? 'cols' : 'big'; call('setLayout', p.id, { three: p.layout.three }); render(); } }, p.layout.three === 'big' ? '1+2' : '3 columns'), head.querySelector('.spacer').nextSibling);
   }
 }
 
@@ -376,14 +376,14 @@ function renderOverview(main) {
   const groups = S.config.projects.map((p) => ({ p, list: projectSessions(p.id) })).filter((g) => g.list.length);
   const total = groups.reduce((a, g) => a + g.list.length, 0);
   main.appendChild(h('div', { class: 'main-head' },
-    h('span', { class: 'title' }, 'Gesamtübersicht'),
-    h('span', { class: 'muted' }, `${total} Sessions in ${groups.length} Projekten · Klick auf eine Kachel öffnet sie`),
+    h('span', { class: 'title' }, 'Overview'),
+    h('span', { class: 'muted' }, `${total} sessions in ${groups.length} projects · click a tile to open it`),
     h('div', { class: 'spacer' }),
-    h('span', { class: 'muted', title: 'Kleine Kacheln haben weniger Zeilen und Spalten; die Programme bekommen die neue Größe und brechen ggf. um.' }, 'ⓘ Größe')));
+    h('span', { class: 'muted', title: 'Small tiles have fewer rows and columns; programs receive the new size and may re-wrap.' }, 'ⓘ Size')));
   const content = h('div', { class: 'content' });
   main.appendChild(content);
   if (!total) {
-    content.appendChild(h('div', { class: 'empty' }, 'Keine laufenden Sessions.'));
+    content.appendChild(h('div', { class: 'empty' }, 'No running sessions.'));
     return;
   }
   const auto = total <= 2 ? 12 : total <= 4 ? 11 : total <= 9 ? 9 : total <= 16 ? 8 : 7;
@@ -418,7 +418,7 @@ function renderOverview(main) {
       const tile = h('div', { class: 'tile' },
         h('div', { class: 'tile-head' }, dot(s.status, { 'data-dot': s.id }), s.name, h('span', { class: 'spacer' }), h('span', { class: 'muted' }, timeAgo(s.lastOutputAt))),
         body,
-        h('div', { class: 'tile-click', title: `${p.name} / ${s.name} öffnen`, onclick: () => selectSession(s.id) }));
+        h('div', { class: 'tile-click', title: `Open ${p.name} / ${s.name}`, onclick: () => selectSession(s.id) }));
       grid.appendChild(tile);
       mountSession(body, s, { fontSize: fs, compact: true });
     }
