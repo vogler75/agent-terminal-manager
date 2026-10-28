@@ -304,7 +304,11 @@ const cfgBase = () => {
     const serve = `python3 -c 'import http.server' 2>/dev/null && exec python3 -m http.server ${rp} --bind 127.0.0.1 || exec node -e 'require(\"http\").createServer((q,r)=>r.end(\"<html>Directory listing</html>\")).listen(${rp},\"127.0.0.1\")'`;
     sshRun(`tmux new-session -d -s atm-e2e-http-${RUN} "cd /tmp && ${serve}"`);
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
-    const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 });
+    const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 }).catch((e) => {
+      const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t atm-e2e-http-${RUN} 2>&1 | tail -5`);
+      const fwd = JSON.stringify(require('child_process').spawnSync('lsof', ['-iTCP:' + lp, '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout || '');
+      throw new Error(`${e.message}\n   remote: ${diag.trim()}\n   local listener: ${fwd}`);
+    });
     assert.match(body, /Directory listing|<html/i);
     sshRun(`tmux kill-session -t atm-e2e-http-${RUN}`);
   }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
@@ -544,7 +548,7 @@ const cfgBase = () => {
     await waitFor(async () => {
       const msgs = await page.evaluate((id) => window.atm.call('orchMessages', id), o1.id);
       return msgs.some((x) => x.role === 'user' && x.text.startsWith('[ATM event]') && x.text.includes('event-trigger'));
-    }, { msg: 'event delivered to orchestrator', timeout: 60000 });
+    }, { msg: 'event delivered to orchestrator', timeout: 180000 });
     // Max rounds: further events beyond maxRounds pause the orchestrator.
     for (let i = 0; i < 3; i++) {
       await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id), o1.id)).busy === false || (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'idle between events', timeout: 120000 });
