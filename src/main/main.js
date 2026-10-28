@@ -1,0 +1,286 @@
+'use strict';
+const { app, BrowserWindow, ipcMain, Notification, dialog, Menu, shell, clipboard } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { Store } = require('./store');
+const { SessionManager } = require('./sessions');
+const { AgentSession } = require('./agent');
+const { HostMonitor } = require('./hosts');
+const { ForwardManager } = require('./forwards');
+const { AuditLog } = require('./audit');
+const { McpService } = require('./mcp');
+const { OrchestratorManager } = require('./orchestrators');
+const { findOpencode } = require('./opencode');
+
+// Allow an isolated data directory (used by tests and for running several profiles).
+if (process.env.ATM_USER_DATA) app.setPath('userData', path.resolve(process.env.ATM_USER_DATA));
+
+if (!process.env.ATM_USER_DATA && !app.requestSingleInstanceLock()) {
+  app.quit();
+}
+
+let win = null;
+let store, sessions, hosts, forwards, audit, mcp, orchestrators;
+
+function send(channel, payload) {
+  if (win && !win.isDestroyed()) win.webContents.send('event', { channel, payload });
+}
+
+// Batch terminal output per session to keep IPC traffic low.
+const pendingData = new Map();
+let flushScheduled = false;
+function queueData(id, data) {
+  pendingData.set(id, (pendingData.get(id) || '') + data);
+  if (!flushScheduled) {
+    flushScheduled = true;
+    setTimeout(() => {
+      flushScheduled = false;
+      for (const [sid, d] of pendingData) send('session:data', { id: sid, data: d });
+      pendingData.clear();
+    }, 8);
+  }
+}
+
+const notificationLog = [];
+function notify(title, body, onClick) {
+  notificationLog.push({ title, body, time: Date.now() });
+  if (!store.settings.notifications || !Notification.isSupported()) return;
+  const n = new Notification({ title, body, silent: false });
+  n.on('click', () => {
+    if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+    if (onClick) onClick();
+  });
+  n.show();
+}
+
+function setup() {
+  const dataDir = app.getPath('userData');
+  store = new Store(dataDir);
+  audit = new AuditLog(dataDir);
+  sessions = new SessionManager(store);
+  sessions.agentFactory = (mgr, project, opts) => new AgentSession(mgr, project, opts);
+  hosts = new HostMonitor(store, sessions);
+  forwards = new ForwardManager(store, sessions);
+  mcp = new McpService({ store, sessions, hosts, audit });
+  orchestrators = new OrchestratorManager({ store, sessions, mcp, audit, dataDir, notify: (t, b) => notify(t, b) });
+
+  sessions.on('data', (s, d) => queueData(s.id, d));
+  sessions.on('opened', (s) => send('session:opened', s.info()));
+  sessions.on('closed', (s) => send('session:closed', { id: s.id, projectId: s.projectId }));
+  sessions.on('updated', (s) => send('session:updated', s.info()));
+  sessions.on('exit', (s) => send('session:updated', s.info()));
+  sessions.on('agent-messages', (s, messages) => send('agent:messages', { id: s.id, messages }));
+  sessions.on('agent-live', (s, text) => send('agent:live', { id: s.id, text }));
+  sessions.on('agent-log', (s, line) => send('agent:log', { id: s.id, line }));
+  sessions.on('status', (s, prev, reason) => {
+    send('session:status', { id: s.id, status: s.status, prev, reason, lastOutputAt: s.lastOutputAt });
+    // Notify when an agent switches to "waiting", but not for the first prompt of a fresh shell.
+    if (s.status === 'waiting' && (prev === 'working') && (s.hadInput || s.kind === 'agent')) {
+      const p = s.project;
+      const focused = win && win.isFocused() && activeSessionId === s.id;
+      if (!focused) notify(`${p ? p.name : ''} / ${s.name}`, reason === 'bell' ? 'Waiting for input (bell)' : 'Agent is waiting / finished', () => send('focus-session', { id: s.id }));
+    }
+  });
+  hosts.on('changed', (snap) => send('hosts:status', snap));
+  forwards.on('changed', (snap) => send('forwards:status', snap));
+  audit.on('entry', (e) => send('audit:entry', e));
+  mcp.on('status', (st) => send('mcp:status', st));
+  mcp.on('project-created', () => send('config:changed', publicConfig()));
+  orchestrators.on('changed', (list) => send('orch:list', list));
+  orchestrators.on('messages', (m) => send('orch:messages', m));
+  orchestrators.on('live', (m) => send('orch:live', m));
+  store.on('changed', () => send('config:changed', publicConfig()));
+  // Test hook: give e2e tests access to the main-process services.
+  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api };
+}
+
+let activeSessionId = null;
+
+function publicConfig() {
+  const { tokens, ...rest } = store.data;
+  return rest;
+}
+
+// IPC API exposed to the renderer.
+const api = {
+  getState: () => ({
+    config: publicConfig(),
+    sessions: sessions.list().map((s) => s.info()),
+    hosts: hosts.snapshot(),
+    forwards: forwards.snapshot(),
+    mcp: mcp.status,
+    tokens: mcp.listTokens(),
+    orchestrators: orchestrators.list(),
+    templates: orchestrators.templates(),
+    platform: process.platform,
+    version: app.getVersion(),
+    dataDir: app.getPath('userData'),
+    stdioBridge: bridgePath(),
+  }),
+
+  // projects
+  saveProject: (p) => {
+    const before = p.id ? store.getProject(p.id) : null;
+    const saved = store.saveProject(p);
+    if (before && JSON.stringify(before.forwards) !== JSON.stringify(saved.forwards)) forwards.restart(saved.id);
+    return saved;
+  },
+  deleteProject: (id) => {
+    for (const s of sessions.list(id)) sessions.close(s.id);
+    store.deleteProject(id);
+  },
+  moveProject: (id, delta) => store.moveProject(id, delta),
+  setLayout: (id, layout) => { const p = store.getProject(id); if (p) { p.layout = { ...p.layout, ...layout }; store.save(); } },
+
+  // hosts
+  saveHost: (h) => { const r = store.saveHost(h); hosts.check(r); return r; },
+  deleteHost: (id) => store.deleteHost(id),
+  checkHosts: () => hosts.checkAll(),
+  checkHostSsh: (id) => { const h = store.getHost(id); return h ? hosts.checkRemoteSessions(h) : null; },
+
+  // sessions
+  openSession: (projectId, opts) => sessions.open(projectId, opts || {}).info(),
+  startAll: (projectId) => {
+    const p = store.getProject(projectId);
+    const existing = new Set(sessions.list(projectId).map((s) => s.name));
+    const list = p.terminals && p.terminals.length ? p.terminals : [p.defaultSession];
+    return list.filter((t) => !existing.has(t.name)).map((t) => sessions.open(projectId, { ...t, exactName: false }).info());
+  },
+  closeSession: (id, killTmux) => sessions.close(id, { killTmux }),
+  renameSession: (id, name) => sessions.rename(id, name),
+  setSessionFlags: (id, flags) => sessions.setFlags(id, flags),
+  write: (id, data) => { const s = sessions.get(id); if (s) s.write(data); },
+  resize: (id, cols, rows) => { const s = sessions.get(id); if (s) s.resize(cols, rows); },
+  reconnect: (id) => { const s = sessions.get(id); if (s) s.reconnect(); },
+  serialize: (id) => { const s = sessions.get(id); return s && s.serialize ? s.serialize() : ''; },
+  setActive: (id) => { activeSessionId = id; },
+  runCommand: async (id, command) => { const s = sessions.get(id); if (s) await s.send(command); },
+  agentSend: (id, text) => { const s = sessions.get(id); if (!s) throw new Error('no session'); return s.send(text); },
+  agentMessages: (id) => { const s = sessions.get(id); return s && s.refresh ? s.refresh() : []; },
+  agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
+
+  // settings, import/export
+  updateSettings: async (patch) => {
+    const prev = JSON.stringify(store.settings.mcp);
+    const s = store.updateSettings(patch);
+    if (JSON.stringify(s.mcp) !== prev) await mcp.restart();
+    return s;
+  },
+  exportConfig: async () => {
+    const r = await dialog.showSaveDialog(win, { defaultPath: 'agent-terminal-manager.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePath) return null;
+    fs.writeFileSync(r.filePath, store.exportJson());
+    return r.filePath;
+  },
+  importConfig: async (merge) => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    store.importJson(fs.readFileSync(r.filePaths[0], 'utf8'), { merge });
+    return r.filePaths[0];
+  },
+  importConfigText: (text, merge) => store.importJson(text, { merge }),
+  exportConfigText: () => store.exportJson(),
+  openDataDir: () => shell.openPath(app.getPath('userData')),
+  detectOpencode: () => findOpencode(store.settings.opencodePath),
+  copy: (text) => clipboard.writeText(String(text)),
+  openExternal: (url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); },
+
+  // mcp
+  mcpStatus: () => mcp.status,
+  createToken: (opts) => mcp.createToken(opts),
+  renewToken: (id) => mcp.renewToken(id),
+  revokeToken: (id) => mcp.revokeToken(id),
+  deleteToken: (id) => mcp.deleteToken(id),
+  listTokens: () => mcp.listTokens(),
+  auditList: () => audit.list(),
+
+  // orchestrators
+  orchSave: (o) => orchestrators.save(o),
+  orchRemove: (id) => orchestrators.remove(id),
+  orchStart: (id) => orchestrators.start(id),
+  orchStop: (id) => orchestrators.stop(id),
+  orchPause: (id) => orchestrators.pause(id),
+  orchResume: (id) => orchestrators.resume(id),
+  orchInterrupt: (id) => orchestrators.interrupt(id),
+  orchSend: (id, text) => orchestrators.send(id, text),
+  orchMessages: (id) => orchestrators.refresh(id),
+};
+
+function bridgePath() {
+  const p = path.join(__dirname, '..', '..', 'dist', 'atm-mcp-stdio.js');
+  return p.replace('app.asar', 'app.asar.unpacked');
+}
+
+ipcMain.handle('api', async (_e, method, ...args) => {
+  const fn = api[method];
+  if (!fn) throw new Error('Unknown API method ' + method);
+  return fn(...args);
+});
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 500,
+    backgroundColor: '#14161b',
+    title: 'Agent Terminal Manager',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  win.on('closed', () => { win = null; });
+  // Links clicked in terminals open in the system browser.
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+}
+
+function buildMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [
+    ...(isMac ? [{ role: 'appMenu' }] : []),
+    { label: 'File', submenu: [
+      { label: 'Export configuration…', click: () => api.exportConfig() },
+      { label: 'Import configuration…', click: () => api.importConfig(false) },
+      { type: 'separator' },
+      isMac ? { role: 'close' } : { role: 'quit' },
+    ] },
+    { role: 'editMenu' },
+    { label: 'View', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' }] },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+
+app.whenReady().then(async () => {
+  if (process.platform === 'win32') app.setAppUserModelId('com.vogler.agent-terminal-manager');
+  setup();
+  buildMenu();
+  createWindow();
+  await mcp.start();
+  win.webContents.once('did-finish-load', () => {
+    if (process.env.ATM_NO_RESTORE !== '1') sessions.restoreAll();
+  });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+});
+
+let quitting = false;
+app.on('before-quit', () => {
+  if (quitting) return;
+  quitting = true;
+  try { orchestrators.shutdown(); } catch {}
+  try { forwards.shutdown(); } catch {}
+  try { hosts.stop(); } catch {}
+  try { sessions.shutdown(); } catch {}
+  try { mcp.stop(); } catch {}
+  try { store.saveNow(); } catch {}
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+
+module.exports = { api };
