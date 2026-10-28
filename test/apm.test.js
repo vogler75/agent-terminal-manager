@@ -24,6 +24,25 @@ test('APM reference descriptions for the live hint', () => {
   assert.deepStrictEqual(describeRef(''), { valid: false, message: '' });
 });
 
+test('APM references become Git sources the app can download itself', () => {
+  const { refToSource } = require('../src/main/coding-agents/apm');
+  assert.deepStrictEqual(refToSource('microsoft/apm-sample-package#v1.0.0'), { url: 'https://github.com/microsoft/apm-sample-package.git', path: '', ref: 'v1.0.0', name: 'apm-sample-package' });
+  assert.deepStrictEqual(refToSource('anthropics/skills/skills/frontend-design'), { url: 'https://github.com/anthropics/skills.git', path: 'skills/frontend-design', ref: '', name: 'frontend-design' });
+  assert.deepStrictEqual(refToSource('git@gitlab.example.com:team/skills.git#main'), { url: 'git@gitlab.example.com:team/skills.git', path: '', ref: 'main', name: 'skills' });
+  assert.throws(() => refToSource('azure-cloud-development@awesome-copilot'), /only be installed with APM/);
+});
+
+test('a SKILL.md without frontmatter uses its first paragraph as description', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { SkillsRepo } = require('../src/main/coding-agents/skills');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-fp-'));
+  fs.mkdirSync(path.join(d, 'x'));
+  fs.writeFileSync(path.join(d, 'x', 'SKILL.md'), '# Style Checker\n\nCheck code against the style guide.\n\n## When\n- a\n');
+  assert.strictEqual(new SkillsRepo(d).list()[0].description, 'Check code against the style guide.');
+});
+
 test('APM targets map our agents to APM target names', () => {
   assert.deepStrictEqual(apmTargets(['claude', 'copilot', 'agy', 'pi', 'qwen', 'claude']), ['claude', 'copilot', 'antigravity']);
 });

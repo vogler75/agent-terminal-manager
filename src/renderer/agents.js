@@ -53,16 +53,21 @@ async function fillLibrary(ctx, page) {
     h('div', { class: 'row' }, h('h2', { style: { margin: 0 } }, 'APM packages'), h('div', { class: 'spacer' }),
       h('button', { class: 'primary', onclick: () => editApm(ctx, null, () => fillLibrary(ctx, page)) }, '+ APM package')),
     apmLib.length ? h('table', { class: 'list', style: { marginTop: '10px' } },
-      h('tr', null, ['Package', 'Description', ''].map((t) => h('th', null, t))),
-      apmLib.map((e) => h('tr', null,
+      h('tr', null, ['Package', 'Description', 'Skills in the library', ''].map((t) => h('th', null, t))),
+      apmLib.map((e) => {
+        const src = (S.config.skillSources || []).find((s) => s.fromApm === e.id);
+        return h('tr', null,
         h('td', { class: 'mono' }, e.ref),
         h('td', null, e.description || h('span', { class: 'muted' }, '–')),
+        h('td', { class: src && src.error ? 'bad' : 'muted', style: { fontSize: '12px' } }, src ? (src.error ? src.error.split('\n')[0] : `${src.skillCount ?? 0} skill${src.skillCount === 1 ? '' : 's'} (source ${src.name})`) : e.ref.includes('@') && !/^(https|git@)/.test(e.ref) ? 'APM only (marketplace)' : 'not downloaded'),
         h('td', null, h('div', { class: 'row' },
+          !(e.ref.includes('@') && !/^(https|git@)/.test(e.ref)) ? h('button', { title: 'Download the package with the app and add its skills to the library (deployed like your own skills)', onclick: () => apmDownloadSkills(ctx, e, () => fillLibrary(ctx, page)) }, src ? 'Update skills' : 'Download skills') : null,
           h('button', { class: 'icon', title: 'Edit', onclick: () => editApm(ctx, e, () => fillLibrary(ctx, page)) }, '✎'),
           h('button', { class: 'icon danger', title: 'Delete', onclick: async () => {
             if (await confirmDialog('Delete APM package', `Remove “${e.ref}” from the library? Projects uninstall it on their next deploy.`, 'Delete')) { await call('apmLibraryDelete', e.id); await reload(ctx); fillLibrary(ctx, page); }
-          } }, '✕')))))) : h('p', { class: 'muted' }, 'No APM packages yet.'),
-    h('p', { class: 'muted' }, 'APM (Agent Package Manager, github.com/microsoft/apm) installs packages of skills, prompts, instructions, agents and MCP servers from Git repositories into each agent’s own folders and pins them in apm.lock.yaml. Select packages per project; Deploy installs them with APM on the project machine, “APM: update packages” moves them to newer versions.'));
+          } }, '✕'))));
+      })) : h('p', { class: 'muted' }, 'No APM packages yet.'),
+    h('p', { class: 'muted' }, 'Two ways to use a package: “Download skills” fetches it with the app and adds its skills to the library — select them per project like your own skills; the project machine needs nothing else. Or select the package in a project to install it with APM on the project machine (also prompts, instructions, agents, dependencies and marketplace plugins; needs APM there). APM: github.com/microsoft/apm'));
   page.append(mcpCard, skillsCard, apmCard);
 
   const { dir, skills } = await call('skillsList');
@@ -77,7 +82,7 @@ async function fillLibrary(ctx, page) {
       sources.map((src) => h('tr', null,
         h('td', null, h('b', null, src.name)),
         h('td', { class: 'mono', style: { fontSize: '11px', wordBreak: 'break-all' } }, src.url + (src.ref ? ' #' + src.ref : '') + (src.path ? ' / ' + src.path : '')),
-        h('td', { class: src.error ? 'bad' : 'muted', style: { fontSize: '12px' } }, src.error ? src.error.split('\n')[0] : src.lastSync ? `${src.skillCount ?? '?'} skills${src.conflictCount ? ` · ${src.conflictCount} name conflict${src.conflictCount > 1 ? 's' : ''}` : ''} · ${src.commit || ''}` : 'not downloaded yet'),
+        h('td', { class: src.error ? 'bad' : 'muted', style: { fontSize: '12px' } }, src.error ? src.error.split('\n')[0] : src.lastSync ? `${src.skillCount ?? '?'} skill${src.skillCount === 1 ? '' : 's'}${src.conflictCount ? ` · ${src.conflictCount} name conflict${src.conflictCount > 1 ? 's' : ''}` : ''} · ${src.commit || ''}` : 'not downloaded yet'),
         h('td', null, h('div', { class: 'row' },
           h('button', { title: 'Download or update', onclick: () => syncSources(ctx, [src], () => fillLibrary(ctx, page)) }, src.lastSync && !src.error ? 'Update' : 'Download'),
           h('button', { class: 'icon', title: 'Edit', onclick: () => editSource(ctx, src, () => fillLibrary(ctx, page)) }, '✎'),
@@ -190,6 +195,18 @@ function editApm(ctx, entry, after) {
   });
 }
 
+async function apmDownloadSkills(ctx, e, after) {
+  const t = toast(`Downloading ${e.ref}…`, { ms: 300000 });
+  try {
+    const r = await ctx.call('apmToSkillSource', e.id);
+    toast(`${e.ref}: ${r.skills.length - r.conflicts.length} skills added as source “${r.source}” (${r.commit})${r.conflicts.length ? ' · name conflicts: ' + r.conflicts.join(', ') : ''}`, { ms: 7000 });
+  } catch (err) {
+    toast(err.message.split('\n')[0], { error: true, ms: 10000 });
+  } finally { t && t.remove && t.remove(); }
+  await reload(ctx);
+  after && after();
+}
+
 // Runs an APM action on the project machine and shows its output.
 async function apmAction(ctx, p, action) {
   const labels = { outdated: 'Checking APM packages for updates', update: 'Updating APM packages', list: 'Listing APM packages', 'self-update': 'Updating the APM CLI' };
@@ -215,7 +232,7 @@ function editSource(ctx, src, after) {
     title: src ? 'Edit Git source' : 'New Git source for skills',
     width: '720px',
     body: h('div', { class: 'form' },
-      ...field('Repository', url, 'https or ssh URL (git@host:group/repo.git); a local repository folder works too'),
+      ...field('Repository', url, 'https or ssh URL (git@host:group/repo.git), GitHub shorthand owner/repo[/path][#tag] as in APM, or a local repository folder'),
       ...field('Branch / tag', ref, 'Optional; Update fetches the newest commit of it'),
       ...field('Sub-folder', sub, 'Optional; only skills below this folder, e.g. skills'),
       ...field('Name', name, 'Shown as the source of its skills'),

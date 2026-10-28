@@ -309,7 +309,14 @@ const api = {
   // Git sources for skills: downloaded into the skills repository, deployed like own skills
   skillSourceSave: (entry) => {
     const { validSource } = require('./coding-agents/skills');
-    const url = String(entry.url || '').trim();
+    const apmRef = require('./coding-agents/apm');
+    let url = String(entry.url || '').trim();
+    // APM notation (owner/repo[/path][#ref]) is converted to a GitHub source.
+    if (validSource({ url }) && apmRef.validRef(url)) {
+      const conv = apmRef.refToSource(url);
+      url = conv.url;
+      entry = { ...entry, ref: entry.ref || conv.ref, path: entry.path || conv.path, name: entry.name || conv.name };
+    }
     const name = String(entry.name || '').trim() || url.replace(/\.git$/, '').split(/[/:\\]/).filter(Boolean).pop() || 'source';
     const src = { id: entry.id || crypto.randomUUID(), name, url, ref: String(entry.ref || '').trim(), path: String(entry.path || '').trim().replace(/^[\\/]+/, '') };
     const err = validSource(src);
@@ -324,6 +331,25 @@ const api = {
     store.save();
     return src.id;
   },
+  // Downloads the skills of an APM package with the app's own Git (as a Git source) instead of APM on the target.
+  apmToSkillSource: async (apmId) => {
+    const apmRef = require('./coding-agents/apm');
+    const e = store.data.apmLibrary.find((x) => x.id === apmId);
+    if (!e) throw new Error('unknown APM package');
+    const conv = apmRef.refToSource(e.ref);
+    let src = store.data.skillSources.find((s) => s.fromApm === apmId || (s.url === conv.url && (s.path || '') === conv.path && (s.ref || '') === conv.ref));
+    if (!src) {
+      let name = conv.name;
+      for (let i = 2; store.data.skillSources.some((s) => s.name.toLowerCase() === name.toLowerCase()); i++) name = `${conv.name}-${i}`;
+      const id = api.skillSourceSave({ ...conv, name });
+      src = store.data.skillSources.find((s) => s.id === id);
+    }
+    src.fromApm = apmId;
+    store.save();
+    const r = await api.skillSourceSync(src.id);
+    return { ...r, source: src.name };
+  },
+
   skillSourceDelete: (id) => {
     const src = store.data.skillSources.find((x) => x.id === id);
     if (src) skillsRepo().removeSource(src);

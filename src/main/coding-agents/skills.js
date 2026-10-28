@@ -8,6 +8,16 @@ const MAX_FILES = 200;
 const MAX_BYTES = 2 * 1024 * 1024;
 const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
+// Description fallback for a SKILL.md without frontmatter: its first plain paragraph.
+function firstParagraph(text) {
+  const body = String(text || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  for (const block of body.split(/\r?\n\s*\r?\n/)) {
+    const t = block.trim();
+    if (t && !/^(#|```|[-*>|])/.test(t)) return t.replace(/\s+/g, ' ').slice(0, 200);
+  }
+  return '';
+}
+
 function frontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text || '');
   const out = {};
@@ -76,8 +86,9 @@ class SkillsRepo {
   sourceDir(source) { return path.join(this.dir, '.sources', sourceSlug(source)); }
 
   _item(dir, name, source) {
-    const fm = frontmatter(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8'));
-    const item = { name, title: fm.name || name, description: fm.description || '', path: dir, source: source ? source.name : null };
+    const text = fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8');
+    const fm = frontmatter(text);
+    const item = { name, title: fm.name || name, description: fm.description || firstParagraph(text), path: dir, source: source ? source.name : null };
     try {
       item.files = listFiles(dir);
       if (!NAME_RE.test(name)) item.error = 'folder name must be letters, digits, dot, dash or underscore';

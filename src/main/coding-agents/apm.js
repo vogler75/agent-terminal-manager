@@ -26,6 +26,20 @@ function validRef(ref) {
   return typeof ref === 'string' && REF_RE.test(ref.trim());
 }
 
+// An APM reference as a Git source the app can download itself: {url, path, ref, name}.
+// GitHub shorthand owner/repo[/path][#ref] and Git URLs work; marketplace plugins need APM.
+function refToSource(input) {
+  const ref = String(input || '').trim();
+  if (!validRef(ref)) throw new Error('Invalid package reference');
+  const [base, pin = ''] = ref.split('#');
+  if (/^(https:\/\/|git@)/.test(base)) {
+    return { url: base, path: '', ref: pin, name: base.replace(/\.git$/, '').split(/[/:]/).filter(Boolean).pop() };
+  }
+  if (base.includes('@')) throw new Error('Marketplace plugins can only be installed with APM on the target');
+  const [owner, repo, ...sub] = base.split('/');
+  return { url: `https://github.com/${owner}/${repo}.git`, path: sub.join('/'), ref: pin, name: sub.length ? sub[sub.length - 1] : repo };
+}
+
 // What kind of reference was entered (for the live hint in the dialog).
 function describeRef(input) {
   const ref = String(input || '').trim();
@@ -85,4 +99,4 @@ function cleanOutput(text) {
     .join('\n');
 }
 
-module.exports = { APM, TARGETS, validRef, describeRef, apmTargets, planApm, apmDeployCommands, apmActionCommand, cleanOutput };
+module.exports = { APM, TARGETS, validRef, describeRef, refToSource, apmTargets, planApm, apmDeployCommands, apmActionCommand, cleanOutput };
