@@ -6,9 +6,14 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-const exe = process.argv[2] || (process.platform === 'win32'
-  ? path.join(__dirname, '..', 'release', 'win-unpacked', 'Agent Terminal Manager.exe')
-  : path.join(__dirname, '..', 'release', 'mac', 'Agent Terminal Manager.app', 'Contents', 'MacOS', 'Agent Terminal Manager'));
+function findExe() {
+  const rel = path.join(__dirname, '..', 'release');
+  if (process.platform === 'win32') return path.join(rel, 'win-unpacked', 'Agent Terminal Manager.exe');
+  // electron-builder names the folder mac, mac-x64 or mac-arm64 depending on the architecture.
+  const dir = fs.readdirSync(rel).find((d) => /^mac/.test(d) && fs.existsSync(path.join(rel, d, 'Agent Terminal Manager.app')));
+  return path.join(rel, dir || 'mac', 'Agent Terminal Manager.app', 'Contents', 'MacOS', 'Agent Terminal Manager');
+}
+const exe = process.argv[2] || findExe();
 
 (async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-pkg-'));
