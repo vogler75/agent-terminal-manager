@@ -26,6 +26,23 @@ function validRef(ref) {
   return typeof ref === 'string' && REF_RE.test(ref.trim());
 }
 
+// What kind of reference was entered (for the live hint in the dialog).
+function describeRef(input) {
+  const ref = String(input || '').trim();
+  if (!ref) return { valid: false, message: '' };
+  if (!validRef(ref)) {
+    if (/[\s;&|$`'"<>()]/.test(ref)) return { valid: false, message: 'Spaces and shell characters ( ; & | $ quotes ) are not allowed' };
+    return { valid: false, message: 'Not a package reference: use owner/repo, a Git URL or plugin@marketplace' };
+  }
+  const [base, pin] = ref.split('#');
+  const at = pin ? ` · pinned to ${pin}` : ' · latest commit (pinned in apm.lock.yaml)';
+  if (/^https:\/\//.test(base)) return { valid: true, message: `Git repository over HTTPS (${base.replace(/^https:\/\/([^/]+).*/, '$1')})${at}` };
+  if (/^git@/.test(base)) return { valid: true, message: `Git repository over SSH (${base.replace(/^git@([^:]+).*/, '$1')})${at}` };
+  if (base.includes('@')) return { valid: true, message: `Plugin "${base.split('@')[0]}" from marketplace "${base.split('@')[1]}"` };
+  const parts = base.split('/');
+  return { valid: true, message: `GitHub ${parts[0]}/${parts[1]}${parts.length > 2 ? `, sub-folder ${parts.slice(2).join('/')}` : ''}${at}` };
+}
+
 function apmTargets(agentIds) {
   return [...new Set(agentIds.map((id) => TARGETS[id]).filter(Boolean))];
 }
@@ -68,4 +85,4 @@ function cleanOutput(text) {
     .join('\n');
 }
 
-module.exports = { APM, TARGETS, validRef, apmTargets, planApm, apmDeployCommands, apmActionCommand, cleanOutput };
+module.exports = { APM, TARGETS, validRef, describeRef, apmTargets, planApm, apmDeployCommands, apmActionCommand, cleanOutput };

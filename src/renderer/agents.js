@@ -130,14 +130,41 @@ async function editServer(ctx, entry, after) {
   });
 }
 
+// Examples shown in the APM dialog; a click fills the field.
+const APM_EXAMPLES = [
+  ['GitHub repository', 'microsoft/apm-sample-package'],
+  ['Pinned to a tag or commit', 'microsoft/apm-sample-package#v1.0.0'],
+  ['One folder of a repository (e.g. a single skill)', 'anthropics/skills/skills/frontend-design'],
+  ['Own Git server over HTTPS (GitLab, …)', 'https://gitlab.example.com/team/skills.git'],
+  ['Own Git server over SSH', 'git@gitlab.example.com:team/skills.git'],
+  ['Plugin from a marketplace', 'azure-cloud-development@awesome-copilot'],
+];
+
 function editApm(ctx, entry, after) {
-  const ref = h('input', { value: entry ? entry.ref : '', placeholder: 'owner/repo[/path][#ref], e.g. microsoft/apm-sample-package#v1.0.0' });
+  const ref = h('input', { value: entry ? entry.ref : '', placeholder: 'e.g. microsoft/apm-sample-package', spellcheck: 'false' });
   const desc = h('input', { value: entry ? entry.description : '', placeholder: 'What the package contains (optional)' });
+  const status = h('div', { class: 'ref-status' });
+  let timer = null;
+  const check = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const r = await ctx.call('apmDescribeRef', ref.value);
+      clear(status);
+      if (r.message) status.append(h('span', { class: r.valid ? 'ok' : 'bad' }, (r.valid ? '✓ ' : '✗ ') + r.message));
+    }, 120);
+  };
+  ref.addEventListener('input', check);
+  check();
+  const examples = h('div', { class: 'ref-examples' }, APM_EXAMPLES.map(([label, value]) => h('div', { class: 'ref-example', title: 'Click to use', onclick: () => { ref.value = value; ref.focus(); check(); } },
+    h('span', { class: 'muted' }, label), h('code', null, value))));
   modal({
     title: entry ? 'Edit APM package' : 'New APM package',
-    body: h('div', { class: 'form' },
-      ...field('Package', ref, 'GitHub owner/repo, optional sub-path and #tag/#commit; plugin@marketplace; or an https Git URL'),
-      ...field('Description', desc)),
+    width: '760px',
+    body: h('div', { class: 'form ref-form' },
+      ...field('Package', h('div', null, ref, status)),
+      ...field('Description', desc),
+      h('label', null, 'Examples'), examples,
+      h('div', { class: 'hint' }, 'Add #branch, #tag or #commit to pin a version; without it APM takes the latest commit and records it in apm.lock.yaml (“APM: update packages” moves it forward). Private repositories need git access on the project machine: an SSH key for git@ URLs, or a stored login / “apm auth” for https.')),
     onOk: async () => {
       await ctx.call('apmLibrarySave', { id: entry && entry.id, ref: ref.value, description: desc.value });
       await reload(ctx);

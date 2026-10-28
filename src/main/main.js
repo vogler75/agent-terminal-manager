@@ -302,6 +302,7 @@ const api = {
     for (const p of store.data.projects) if (p.agentSetup) p.agentSetup.apm = (p.agentSetup.apm || []).filter((x) => x !== id);
     store.save();
   },
+  apmDescribeRef: (ref) => require('./coding-agents/apm').describeRef(ref),
   apmAction: (projectId, action) => agentSetup().apmAction(store.getProject(projectId), action),
   agentsTools: () => agentSetup().tools(),
 

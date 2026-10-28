@@ -13,6 +13,17 @@ test('APM references: accepted forms and rejected shell injection', () => {
   }
 });
 
+test('APM reference descriptions for the live hint', () => {
+  const { describeRef } = require('../src/main/coding-agents/apm');
+  assert.match(describeRef('microsoft/apm-sample-package#v1.0.0').message, /^GitHub microsoft\/apm-sample-package · pinned to v1\.0\.0$/);
+  assert.match(describeRef('anthropics/skills/skills/frontend-design').message, /sub-folder skills\/frontend-design/);
+  assert.match(describeRef('https://code.example.com/team/skills.git').message, /^Git repository over HTTPS \(code\.example\.com\)/);
+  assert.match(describeRef('git@gitlab.example.com:team/skills.git#main').message, /^Git repository over SSH \(gitlab\.example\.com\) · pinned to main$/);
+  assert.match(describeRef('azure-cloud-development@awesome-copilot').message, /marketplace "awesome-copilot"/);
+  assert.deepStrictEqual(describeRef('owner/repo; rm -rf ~').valid, false);
+  assert.deepStrictEqual(describeRef(''), { valid: false, message: '' });
+});
+
 test('APM targets map our agents to APM target names', () => {
   assert.deepStrictEqual(apmTargets(['claude', 'copilot', 'agy', 'pi', 'qwen', 'claude']), ['claude', 'copilot', 'antigravity']);
 });
