@@ -100,6 +100,7 @@ const cfgBase = () => {
     await page.click('text=+ Open session');
     ids.local = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-local')?.id, { msg: 'session' });
     await waitFor(async () => /PS |\$ |% /.test((await m.output(ids.local)) || ''), { msg: 'prompt', timeout: 20000 });
+    await sleep(800); // let the shell finish its startup before typing
     await page.keyboard.type('echo hello-atm-' + RUN);
     await page.keyboard.press('Enter');
     await waitFor(async () => ((await m.output(ids.local)) || '').split('\n').some((l) => l.trim() === 'hello-atm-' + RUN), { msg: 'echo output' });
@@ -300,9 +301,11 @@ const cfgBase = () => {
   await step('P6 port forwarding active while session runs', async () => {
     const lp = MCP_PORT + 900;
     const rp = MCP_PORT + 901;
-    // python3 on macOS can be a stub that only offers the Xcode tools, so fall back to a Node web server.
-    const serve = `python3 -c 'import http.server' 2>/dev/null && exec python3 -m http.server ${rp} --bind 127.0.0.1 || exec node -e 'require(\"http\").createServer((q,r)=>r.end(\"<html>Directory listing</html>\")).listen(${rp},\"127.0.0.1\")'`;
-    sshRun(`tmux new-session -d -s atm-e2e-http-${RUN} "cd /tmp && ${serve}"`);
+    // Tiny Perl HTTP server (perl exists on Linux and macOS); sent base64-encoded to avoid shell quoting.
+    const perl = 'use IO::Socket::INET; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die $!;'
+      + ' while (my $c = $s->accept) { while (defined(my $l = <$c>)) { last if $l =~ /^\r?\n$/ } print $c "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<html>Directory listing</html>"; close $c }';
+    const b64 = Buffer.from(perl).toString('base64');
+    sshRun(`echo ${b64} | base64 -d > /tmp/atm-e2e-http-${RUN}.pl && tmux new-session -d -s atm-e2e-http-${RUN} "perl /tmp/atm-e2e-http-${RUN}.pl ${rp}"`);
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
     const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 }).catch((e) => {
       const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t atm-e2e-http-${RUN} 2>&1 | tail -5`);
