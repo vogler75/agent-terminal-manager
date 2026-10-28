@@ -75,3 +75,25 @@ test('script output sections are parsed', () => {
   assert.deepStrictEqual(p.cmd.c1, { ok: true, output: 'Added server' });
   assert.strictEqual(p.cmd.c2.ok, false);
 });
+
+test('a failing file write stops the write phase, so the deploy cannot report success', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { Target } = require('../src/main/coding-agents/target');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-strict-'));
+  fs.writeFileSync(path.join(dir, 'blocker'), 'a file, not a folder');
+  const t = new Target({ type: 'local', directory: dir }, null);
+  const script = [
+    t.preamble(),
+    t.strict(true),
+    t.writeSnippet({ base: 'project', rel: 'blocker/sub/x.txt' }, 'cannot be written'),
+    t.strict(false),
+    t.echo('@@ATM_DONE'),
+  ].join('\n');
+  const r = await t.run(script, { timeout: 30000 });
+  assert.ok(!r.out.includes('@@ATM_DONE'), 'done marker must not be printed after a failed write: ' + r.out);
+  const ok = await t.run([t.preamble(), t.strict(true), t.writeSnippet({ base: 'project', rel: 'good/x.txt' }, 'hi'), t.strict(false), t.echo('@@ATM_DONE')].join('\n'), { timeout: 30000 });
+  assert.ok(ok.out.includes('@@ATM_DONE'));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'good', 'x.txt'), 'utf8'), 'hi');
+});

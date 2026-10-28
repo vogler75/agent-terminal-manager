@@ -141,6 +141,12 @@ class Target {
     return `rm -rf ${p}`;
   }
 
+  // Stop at the first failing statement (used around file writes, so a failed write never reports success).
+  strict(on) {
+    if (this.kind === 'powershell') return on ? "$ErrorActionPreference = 'Stop'" : "$ErrorActionPreference = 'Continue'";
+    return on ? 'set -e' : 'set +e';
+  }
+
   echo(text) {
     return this.kind === 'powershell' ? `Write-Output ${psq(text)}` : `echo '${String(text).replace(/'/g, "'\\''")}'`;
   }

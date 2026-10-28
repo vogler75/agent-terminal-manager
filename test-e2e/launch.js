@@ -13,6 +13,13 @@ async function launch({ config, env = {}, dataDir } = {}) {
     env: { ...process.env, ATM_USER_DATA: dir, ...env },
     timeout: 60000,
   });
+  // Keep the main process output for crash diagnostics (ATM_E2E_MAIN_LOG=path).
+  if (process.env.ATM_E2E_MAIN_LOG) {
+    const log = fs.createWriteStream(process.env.ATM_E2E_MAIN_LOG, { flags: 'a' });
+    app.process().stdout.pipe(log);
+    app.process().stderr.pipe(log);
+    app.process().on('exit', (code, sig) => log.write(`\n[main process exited: code=${code} signal=${sig}]\n`));
+  }
   const page = await app.firstWindow();
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

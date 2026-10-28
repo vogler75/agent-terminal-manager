@@ -169,7 +169,9 @@ class AgentSetup {
     writes.push({ loc: MANIFEST[scope], content: JSON.stringify({ ...nextManifest, _updated: new Date().toISOString() }, null, 2) + '\n' });
     const writeScript = [
       t.preamble(),
+      t.strict(true),
       ...writes.map((w) => (w.remove ? t.removeDirSnippet(w.remove) : t.writeSnippet(w.loc, w.content))),
+      t.strict(false),
       ...commands.map((c) => t.commandSnippet(c.key, c.cmd)),
       t.echo('@@ATM_DONE'),
     ].join('\n');
