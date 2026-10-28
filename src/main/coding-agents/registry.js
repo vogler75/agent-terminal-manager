@@ -143,21 +143,6 @@ const cursor = jsonAgent({
   http: (s) => ({ type: 'http', url: s.url, headers: nonEmpty(s.headers) }),
 });
 
-// --- Amp (Sourcegraph): settings key is literally "amp.mcpServers"
-const amp = jsonAgent({
-  id: 'amp',
-  name: 'Amp',
-  bin: 'amp',
-  homepage: 'https://ampcode.com/docs',
-  install: { posix: 'curl -fsSL https://ampcode.com/install.sh | bash', powershell: 'npm install -g @sourcegraph/amp' },
-  files: { user: home('.config/amp/settings.json') },
-  skills: { project: proj('.agents/skills'), user: home('.config/amp/skills') },
-  key: ['amp.mcpServers'],
-  stdio: (s) => ({ command: s.command, args: s.args, env: nonEmpty(s.env) }),
-  http: (s) => ({ url: s.url, headers: nonEmpty(s.headers) }),
-  notes: 'MCP servers are global (~/.config/amp/settings.json); choose user scope to deploy them.',
-});
-
 // --- Qwen Code (Gemini CLI fork)
 const qwen = jsonAgent({
   id: 'qwen',
@@ -172,6 +157,6 @@ const qwen = jsonAgent({
   http: (s) => ({ httpUrl: s.url, headers: nonEmpty(s.headers) }),
 });
 
-const registry = [claude, codex, opencode, agy, copilot, pi, cursor, amp, qwen];
+const registry = [claude, codex, opencode, agy, copilot, pi, cursor, qwen];
 
 module.exports = { registry, byId: (id) => registry.find((a) => a.id === id) };

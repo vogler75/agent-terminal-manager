@@ -50,12 +50,10 @@ test('Codex: TOML block in ~/.codex/config.toml, global only', () => {
   assert.strictEqual(c.skillsDir('user').rel, '.agents/skills');
 });
 
-test('agy uses serverUrl, Copilot adds tools, Amp uses a literal dotted key', () => {
+test('agy uses serverUrl, Copilot adds tools', () => {
   assert.deepStrictEqual(j(byId('agy').applyMcp(null, [http], [])).mcpServers.docs, { serverUrl: 'https://x.dev/mcp', headers: { Authorization: 'Bearer t' } });
   assert.deepStrictEqual(j(byId('copilot').applyMcp(null, [stdio], [])).mcpServers.gh.tools, ['*']);
-  const amp = j(byId('amp').applyMcp('{"amp.notifications.enabled":true}', [stdio], []));
-  assert.ok(amp['amp.mcpServers'].gh);
-  assert.strictEqual(amp['amp.notifications.enabled'], true);
+  assert.strictEqual(byId('amp'), undefined, 'Amp is no longer offered');
   assert.strictEqual(byId('gemini'), undefined, 'Gemini CLI is no longer offered (replaced by agy)');
   assert.deepStrictEqual(j(byId('qwen').applyMcp(null, [http], [])).mcpServers.docs, { httpUrl: 'https://x.dev/mcp', headers: { Authorization: 'Bearer t' } });
 });

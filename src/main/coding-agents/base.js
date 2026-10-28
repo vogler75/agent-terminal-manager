@@ -57,7 +57,7 @@ function parseJsonc(text) {
 }
 
 // Generic JSON merge: obj[key] is a map of servers; replace managed ones, keep everything else.
-// key is a dotted path ("mcp.servers") or an array of literal keys (["amp.mcpServers"]).
+// key is a dotted path ("mcp.servers") or an array of literal keys, for keys that contain dots (["tool.mcpServers"]).
 function mergeJsonServers(content, servers, managed, { key, toEntry, wrap }) {
   const data = parseJsonc(content);
   let container = data;
