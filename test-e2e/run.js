@@ -303,7 +303,7 @@ const cfgBase = () => {
     const rp = MCP_PORT + 901;
     // Tiny Perl HTTP server (perl exists on Linux and macOS); sent base64-encoded to avoid shell quoting.
     const perl = 'use IO::Socket::INET; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die $!;'
-      + ' while (my $c = $s->accept) { while (defined(my $l = <$c>)) { last if $l =~ /^\r?\n$/ } print $c "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n<html>Directory listing</html>"; close $c }';
+      + ' while (my $c = $s->accept) { while (defined(my $l = <$c>)) { last if $l =~ /^\\r?\\n$/ } print $c "HTTP/1.0 200 OK\\r\\nContent-Type: text/html\\r\\n\\r\\n<html>Directory listing</html>"; close $c }';
     const b64 = Buffer.from(perl).toString('base64');
     sshRun(`echo ${b64} | base64 -d > /tmp/atm-e2e-http-${RUN}.pl && tmux new-session -d -s atm-e2e-http-${RUN} "perl /tmp/atm-e2e-http-${RUN}.pl ${rp}"`);
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
@@ -523,7 +523,13 @@ const cfgBase = () => {
     const out = await waitFor(async () => {
       const r = await callTool(client, 'read_output', { session: 'lokal/oc' });
       return r.status === 'waiting' && r.messages.some((x) => x.role === 'assistant' && x.text) ? r : null;
-    }, { msg: 'agent answered', timeout: 180000 });
+    }, { msg: 'agent answered', timeout: 180000 }).catch(async (e) => {
+      const r = await callTool(client, 'read_output', { session: 'lokal/oc' }).catch((x) => ({ error: x.message }));
+      const info = await m.info(ids.agent);
+      throw new Error(`${e.message}
+   status: ${info && info.status} ${info && info.error}
+   output: ${JSON.stringify(r).slice(0, 600)}`);
+    });
     assert.ok(out.messages.some((x) => x.role === 'assistant' && /PONG/i.test(x.text)), 'assistant answered PONG: ' + JSON.stringify(out.messages).slice(0, 500));
     await page.waitForSelector('.chat-log .msg.assistant');
     await shot('agent-session');
