@@ -132,7 +132,8 @@ class Target {
         `[IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('${b64}'))`;
     }
     // Write through a temp file so a failed decode never truncates the original.
-    return `mkdir -p "$(dirname ${p})" && printf '%s' '${b64}' | base64 -d > ${p}.atm-tmp && mv ${p}.atm-tmp ${p}`;
+    // `set -e` ignores failures inside an && chain, so end the script explicitly when the chain fails.
+    return `{ mkdir -p "$(dirname ${p})" && printf '%s' '${b64}' | base64 -d > ${p}.atm-tmp && mv ${p}.atm-tmp ${p}; } || { echo "write failed: ${p}" >&2; exit 1; }`;
   }
 
   removeDirSnippet(loc) {
