@@ -25,7 +25,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install tmux
-          npm i -g opencode-ai
+          npm i -g @opencode/cli && opencode --version
           mkdir -p ~/.ssh ~/sshd && chmod 700 ~/.ssh
           ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519
           cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
@@ -40,7 +40,7 @@ jobs:
           KbdInteractiveAuthentication no
           UsePAM no
           StrictModes no
-          SetEnv PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+          SetEnv PATH=$(dirname "$(command -v node)"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
           EOF
           /usr/sbin/sshd -f ~/sshd/sshd_config -E ~/sshd/log
           sleep 1

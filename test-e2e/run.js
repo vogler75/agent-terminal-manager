@@ -300,7 +300,9 @@ const cfgBase = () => {
   await step('P6 port forwarding active while session runs', async () => {
     const lp = MCP_PORT + 900;
     const rp = MCP_PORT + 901;
-    sshRun(`tmux new-session -d -s atm-e2e-http-${RUN} "cd /tmp && python3 -m http.server ${rp} --bind 127.0.0.1"`);
+    // python3 on macOS can be a stub that only offers the Xcode tools, so fall back to a Node web server.
+    const serve = `python3 -c 'import http.server' 2>/dev/null && exec python3 -m http.server ${rp} --bind 127.0.0.1 || exec node -e 'require(\"http\").createServer((q,r)=>r.end(\"<html>Directory listing</html>\")).listen(${rp},\"127.0.0.1\")'`;
+    sshRun(`tmux new-session -d -s atm-e2e-http-${RUN} "cd /tmp && ${serve}"`);
     await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
     const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 });
     assert.match(body, /Directory listing|<html/i);
@@ -414,7 +416,7 @@ const cfgBase = () => {
       const d = await callTool(client, 'create_directory', { host: 'devbox', path: 'neu/projekt' });
       assert.match(d.absolute, new RegExp(`atm-e2e-${RUN}/neu/projekt$`));
       await assert.rejects(callTool(client, 'create_directory', { host: 'devbox', path: '../x' }));
-      const cp = await callTool(client, 'create_project', { name: 'mcp-proj', host: 'devbox', directory: `~/atm-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp' });
+      const cp = await callTool(client, 'create_project', { name: 'mcp-proj', host: 'devbox', directory: `~/atm-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp; pwd' });
       assert.strictEqual(cp.project.name, 'mcp-proj');
       await waitFor(async () => { const o = await callTool(client, 'read_output', { session: 'mcp-proj/shell', lines: 40 }); return o.output.includes('started-by-mcp') && o.output.includes('neu/projekt'); }, { msg: 'mcp project session ran start command', timeout: 25000 }).catch(async (e) => { throw e; });
     }
