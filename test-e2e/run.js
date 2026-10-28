@@ -561,6 +561,35 @@ const cfgBase = () => {
     await waitFor(async () => (await app.evaluate((_e, id) => (globalThis.__atm.sessions.get(id).modelRef || {}).id, ids.agent)) === picked, { msg: 'model kept after reconnect', timeout: 20000 });
   }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
 
+  await step('Agent session: slash commands (autocomplete, /help, !shell, /new)', async () => {
+    await page.click('#sidebar .sess:has-text("oc")');
+    const ta = page.locator('.chat-input textarea');
+    await ta.fill('');
+    await ta.type('/co');
+    await page.waitForSelector('.slash-menu .slash-item:has-text("/compact")');
+    await shot('agent-slash');
+    await ta.fill('');
+    await ta.type('/he');
+    await page.keyboard.press('Tab');
+    assert.strictEqual(await ta.inputValue(), '/help ');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.modal td:has-text("/model")');
+    await page.waitForSelector('.modal td:has-text("/opencode")'); // built-in OpenCode skill
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await ta.fill(`!echo slash-shell-${RUN}`);
+    await page.keyboard.press('Enter');
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`slash-shell-${RUN}`)), { msg: 'shell output in the conversation', timeout: 30000 });
+    const before = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).agentSessionId, ids.agent);
+    await ta.fill('/new');
+    await page.keyboard.press('Enter');
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).agentSessionId, ids.agent)) !== before, { msg: 'new conversation', timeout: 20000 });
+    await page.waitForSelector('.chat-log .muted:has-text("No messages yet")');
+    // Over MCP, a slash command runs too (here: shell).
+    const r = await callTool(client, 'send_to_session', { session: 'lokal/oc', text: `!echo via-mcp-${RUN}` });
+    assert.ok(r.ok);
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`via-mcp-${RUN}`)), { msg: 'shell via MCP', timeout: 30000 });
+  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+
   await step('P8 orchestrator: start, MCP tools, conflict check, events, pause/stop, max rounds', async () => {
     const devKey = 'p-local/dev';
     const revKey = 'p-local/reviewer';

@@ -28,15 +28,23 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
   box.appendChild(chat);
   fillStatus(ctx, status, s);
   if (!compact) {
-    const ta = h('textarea', { placeholder: 'Prompt for the agent… (Enter to send, Shift+Enter for a new line)' });
+    const ta = h('textarea', { placeholder: 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands, !cmd for shell)' });
+    const slash = slashMenu(ctx, s.id, ta);
     const sendIt = async () => {
       const text = ta.value.trim();
       if (!text) return;
       ta.value = '';
-      try { await call('agentSend', s.id, text); } catch (e) { toast(e.message, { error: true }); ta.value = text; }
+      slash.close();
+      try {
+        if (/^[/!]/.test(text)) await runSlash(ctx, s.id, text);
+        else await call('agentSend', s.id, text);
+      } catch (e) { toast(e.message, { error: true }); ta.value = text; }
     };
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendIt(); } });
-    chat.appendChild(h('div', { class: 'chat-input' }, ta,
+    ta.addEventListener('keydown', (e) => {
+      if (slash.onKey(e)) return;
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendIt(); }
+    });
+    chat.appendChild(h('div', { class: 'chat-input', style: { position: 'relative' } }, slash.el, ta,
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
         h('button', { class: 'primary', onclick: sendIt }, 'Send'),
         h('button', { onclick: () => call('agentInterrupt', s.id), title: 'Interrupt the current run' }, 'Stop'))));
@@ -54,14 +62,97 @@ export function fillStatus(ctx, el, s) {
     info.model ? h('button', { class: 'model-btn', title: 'Change the model of this session', onclick: () => pickModel(ctx, s.id) }, info.model + ' ▾')
       : info.status !== 'starting' && info.status !== 'error' ? h('span', { class: 'warn' }, '· no model — log in to a provider') : null,
     h('span', { class: 'spacer' }),
-    h('button', { title: 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: async () => {
-      try { const t = await ctx.call('agentLogin', s.id); ctx.selectSession(t.id); } catch (e) { toast(e.message, { error: true }); }
-    } }, 'Provider login'),
+    h('button', { title: 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: () => providerLogin(ctx, s.id) }, 'Provider login'),
     h('button', { class: 'icon', title: 'Refresh the model after logging in', onclick: () => ctx.call('agentRefreshModel', s.id) }, '↻'),
     info.status === 'error' ? h('button', { onclick: () => ctx.call('reconnect', s.id) }, 'Reconnect') : null,
     // Full-width block: start errors can span several lines (server log excerpt).
     info.error ? h('div', { class: 'bad mono', style: { flexBasis: '100%', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '220px', overflow: 'auto' } }, info.error) : null,
   ].filter(Boolean));
+}
+
+async function providerLogin(ctx, sessionId) {
+  try { const t = await ctx.call('agentLogin', sessionId); ctx.selectSession(t.id); } catch (e) { toast(e.message, { error: true }); }
+}
+
+// Runs a slash command; commands that need UI (model picker, login, help) are handled here.
+async function runSlash(ctx, sessionId, text) {
+  const r = await ctx.call('agentRunSlash', sessionId, text);
+  if (!r || r.handled !== 'ui') return;
+  if (r.name === 'model') return pickModel(ctx, sessionId);
+  if (r.name === 'login') return providerLogin(ctx, sessionId);
+  if (r.name === 'help') {
+    const c = await ctx.call('agentSlashCommands', sessionId);
+    const row = (name, desc, tag) => h('tr', null, h('td', { class: 'mono' }, '/' + name), h('td', null, desc || ''), h('td', { class: 'muted' }, tag));
+    modal({
+      title: 'Commands', okText: null, cancelText: 'Close',
+      body: h('table', { class: 'list' },
+        c.builtin.map((x) => row(x.name + (x.args ? ' ' + x.args : ''), x.description, 'app')),
+        c.commands.map((x) => row(x.name, x.description, 'command')),
+        c.skills.map((x) => row(x.id, x.description.slice(0, 140), 'skill')),
+        h('tr', null, h('td', { class: 'mono' }, '!<command>'), h('td', null, 'Run a shell command in the project'), h('td', { class: 'muted' }, 'app'))),
+    });
+  }
+}
+
+// Autocomplete list shown above the input while typing "/name".
+function slashMenu(ctx, sessionId, ta) {
+  const el = h('div', { class: 'slash-menu', style: { display: 'none' } });
+  let items = [];
+  let shown = [];
+  let index = 0;
+  let loaded = null;
+  const load = () => loaded || (loaded = ctx.call('agentSlashCommands', sessionId).then((c) => {
+    items = [
+      ...c.builtin.map((x) => ({ name: x.name, desc: x.description, tag: 'app', args: x.args })),
+      ...c.commands.map((x) => ({ name: x.name, desc: x.description, tag: 'command' })),
+      ...c.skills.map((x) => ({ name: x.id, desc: x.description, tag: 'skill' })),
+    ];
+  }).catch(() => { loaded = null; }));
+  const close = () => { el.style.display = 'none'; shown = []; };
+  const render = () => {
+    clear(el);
+    shown.forEach((it, i) => el.appendChild(h('div', {
+      class: 'slash-item' + (i === index ? ' active' : ''),
+      onmousedown: (e) => { e.preventDefault(); index = i; complete(); },
+    }, h('span', { class: 'mono' }, '/' + it.name + (it.args ? ' ' + it.args : '')), h('span', { class: 'muted' }, it.desc.slice(0, 90)), h('span', { class: 'tag' }, it.tag))));
+    el.style.display = shown.length ? '' : 'none';
+  };
+  const update = async () => {
+    const m = /^\/(\S*)$/.exec(ta.value);
+    if (!m) return close();
+    await load();
+    const q = m[1].toLowerCase();
+    shown = items.filter((it) => it.name.toLowerCase().startsWith(q)).concat(items.filter((it) => !it.name.toLowerCase().startsWith(q) && it.name.toLowerCase().includes(q))).slice(0, 12);
+    index = Math.min(index, Math.max(0, shown.length - 1));
+    render();
+  };
+  const complete = () => {
+    const it = shown[index];
+    if (!it) return;
+    ta.value = '/' + it.name + ' ';
+    close();
+    ta.focus();
+  };
+  ta.addEventListener('input', () => { index = 0; update(); });
+  ta.addEventListener('blur', () => setTimeout(close, 150));
+  return {
+    el,
+    close,
+    // Returns true when the key was used by the menu.
+    onKey(e) {
+      if (!shown.length) return false;
+      if (e.key === 'ArrowDown') { index = (index + 1) % shown.length; render(); e.preventDefault(); return true; }
+      if (e.key === 'ArrowUp') { index = (index - 1 + shown.length) % shown.length; render(); e.preventDefault(); return true; }
+      if (e.key === 'Escape') { close(); e.preventDefault(); return true; }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        const it = shown[index];
+        // Enter on an exact match without arguments runs it directly.
+        if (e.key === 'Enter' && it && ta.value.trim() === '/' + it.name && !it.args) { close(); return false; }
+        complete(); e.preventDefault(); return true;
+      }
+      return false;
+    },
+  };
 }
 
 // Model picker: models of all logged-in providers, grouped by provider, with search and effort (variant).

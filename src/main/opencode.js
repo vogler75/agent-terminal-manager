@@ -145,7 +145,16 @@ class OpenCodeClient extends EventEmitter {
       providerID: m.providerID, id: m.id || m.modelID, name: m.name || m.id, variants: (m.variants || []).map((v) => v.id),
     }));
   }
-  prompt(id, text) { return this.api('POST', `/api/session/${id}/prompt`, { text }); }
+  prompt(id, text, { skills } = {}) {
+    const body = { text };
+    if (skills && skills.length) body.skills = skills.map((s) => ({ id: s }));
+    return this.api('POST', `/api/session/${id}/prompt`, body);
+  }
+  command(id, name, text) { return this.api('POST', `/api/session/${id}/command`, { name, text: text || '' }); }
+  compact(id) { return this.api('POST', `/api/session/${id}/compact`, {}); }
+  shell(id, command) { return this.api('POST', `/api/session/${id}/shell`, { command }); }
+  commands() { return this.api('GET', '/api/command').then((r) => r.data || []); }
+  skills() { return this.api('GET', '/api/skill').then((r) => (r.data || []).map((s) => ({ id: s.id, name: s.name, description: s.description || '' }))); }
   interrupt(id) { return this.api('POST', `/api/session/${id}/interrupt`); }
   messages(id) { return this.api('GET', `/api/session/${id}/message`).then((r) => r.data || []); }
   active() { return this.api('GET', '/api/session/active').then((r) => r.data || {}); }

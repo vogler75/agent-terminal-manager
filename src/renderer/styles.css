@@ -180,3 +180,6 @@ table.list tr:hover td { background: var(--bg2); }
 .checklist label { color: var(--fg); font-size: 13px; display: flex; gap: 6px; align-items: center; }
 .model-btn { background: transparent; border-color: transparent; color: var(--fg2); padding: 1px 6px; font-size: 12px; }
 .model-btn:hover { border-color: var(--border); color: var(--fg); }
+.slash-menu { position: absolute; left: 12px; right: 110px; bottom: 100%; margin-bottom: 4px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px; max-height: 320px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.45); z-index: 20; }
+.slash-item { display: grid; grid-template-columns: minmax(140px, auto) 1fr auto; gap: 10px; align-items: center; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+.slash-item.active, .slash-item:hover { background: var(--bg4); }

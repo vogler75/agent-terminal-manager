@@ -177,6 +177,8 @@ const api = {
   agentMessages: (id) => { const s = sessions.get(id); return s && s.refresh ? s.refresh() : []; },
   agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
   agentRefreshModel: (id) => { const s = sessions.get(id); return s && s.refreshModel ? s.refreshModel() : null; },
+  agentSlashCommands: (id) => { const s = sessions.get(id); if (!s || !s.slashCommands) throw new Error('not an agent session'); return s.slashCommands(); },
+  agentRunSlash: (id, text) => { const s = sessions.get(id); if (!s || !s.runSlash) throw new Error('not an agent session'); return s.runSlash(text); },
   agentModels: (id) => { const s = sessions.get(id); if (!s || !s.listModels) throw new Error('not an agent session'); return s.listModels(); },
   agentSetModel: (id, providerID, modelId, variant) => {
     const s = sessions.get(id);

@@ -9,6 +9,16 @@ const { OpenCodeClient, LocalOpenCodeServer, findOpencode, freePort, simplifyMes
 const { resolveTarget, sshBaseArgs, sshDest, projectDir, posixDir, shq, tmuxName, SSH_BIN } = require('./connect');
 const { Target } = require('./coding-agents/target');
 
+const SLASH_BUILTINS = [
+  { name: 'model', description: 'Choose the model for this session' },
+  { name: 'compact', description: 'Summarize the conversation to free up context' },
+  { name: 'new', description: 'Start a new conversation' },
+  { name: 'stop', description: 'Interrupt the current run' },
+  { name: 'shell', description: 'Run a shell command in the project (also: !command)', args: '<command>' },
+  { name: 'login', description: 'Log in to a provider (opens a terminal)' },
+  { name: 'help', description: 'Show available commands' },
+];
+
 class AgentSession extends BaseSession {
   constructor(mgr, project, opts) {
     super(mgr, project, { ...opts, kind: 'agent' });
@@ -214,6 +224,12 @@ class AgentSession extends BaseSession {
 
   async send(text) {
     if (!this.client || !this.agentSessionId) throw new Error(`Agent ${this.name} is not connected`);
+    // Slash commands and !shell also work when sent over MCP (e.g. by an orchestrator).
+    if (/^[/!]\S/.test(text.trim())) {
+      const r = await this.runSlash(text);
+      if (r && r.handled === 'ui') throw new Error(`/${r.name} needs the app window and cannot be sent`);
+      return;
+    }
     this.hadInput = true;
     await this.client.prompt(this.agentSessionId, text);
     this.setStatus('working', 'input');
@@ -258,6 +274,66 @@ class AgentSession extends BaseSession {
       this.model = ref ? `${ref.providerID}/${ref.id}${m && m.name ? ' (' + m.name + ')' : ''}${this.modelRef.variant ? ' · ' + this.modelRef.variant : ''}` : '';
     } catch { this.model = ''; }
     this.mgr.emit('updated', this);
+  }
+
+  // Slash commands: built-ins handled by the app, OpenCode custom commands and skills.
+  async slashCommands() {
+    if (!this.client) throw new Error(`Agent ${this.name} is not connected`);
+    const [commands, skills] = await Promise.all([this.client.commands().catch(() => []), this.client.skills().catch(() => [])]);
+    return {
+      builtin: SLASH_BUILTINS,
+      commands: commands.map((c) => ({ name: c.name, description: c.description || '' })),
+      skills,
+    };
+  }
+
+  // Runs "/name args" (or "!cmd"). Returns {handled: 'ui', name} for commands the UI handles itself.
+  async runSlash(input) {
+    if (!this.client || !this.agentSessionId) throw new Error(`Agent ${this.name} is not connected`);
+    const text = input.trim();
+    if (text.startsWith('!')) return this._shell(text.slice(1).trim());
+    const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text);
+    if (!m) throw new Error('Not a slash command');
+    const [, name, args] = m;
+    this.hadInput = true;
+    switch (name) {
+      case 'model': case 'login': case 'help': return { handled: 'ui', name };
+      case 'stop': await this.interrupt(); return { ok: true };
+      case 'compact': await this.client.compact(this.agentSessionId); this.refreshSoon(); return { ok: true };
+      case 'shell': return this._shell(args.trim());
+      case 'new': {
+        const s = await this.client.createSession();
+        this.agentSessionId = s.id;
+        if (this.command) await this.client.setInstructions(s.id, 'atm-start', this.command).catch(() => {});
+        if (this.chosenModel) await this.client.setModel(s.id, this.chosenModel, this.chosenModel.variant || undefined).catch(() => {});
+        this.mgr.persistOpen(this.projectId);
+        this.messages = [];
+        this.mgr.emit('agent-messages', this, this.messages);
+        await this.refreshModel();
+        return { ok: true };
+      }
+      default: {
+        const { commands, skills } = await this.slashCommands();
+        if (commands.some((c) => c.name === name)) {
+          await this.client.command(this.agentSessionId, name, args);
+        } else {
+          const skill = skills.find((s) => s.id === name || s.name === name);
+          if (!skill) throw new Error(`Unknown command /${name}. Type / to see the available commands.`);
+          await this.client.prompt(this.agentSessionId, args || `Use the ${skill.name} skill.`, { skills: [skill.id] });
+        }
+        this.setStatus('working', 'input');
+        this.refreshSoon();
+        return { ok: true };
+      }
+    }
+  }
+
+  async _shell(command) {
+    if (!command) throw new Error('Usage: /shell <command>  or  !<command>');
+    this.hadInput = true;
+    await this.client.shell(this.agentSessionId, command);
+    this.refreshSoon();
+    return { ok: true };
   }
 
   async listModels() {
