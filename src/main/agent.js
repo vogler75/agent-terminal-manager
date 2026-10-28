@@ -6,7 +6,8 @@ const path = require('path');
 const os = require('os');
 const { BaseSession } = require('./sessions');
 const { OpenCodeClient, LocalOpenCodeServer, findOpencode, freePort, simplifyMessages, messagesToText } = require('./opencode');
-const { resolveTarget, sshBaseArgs, sshDest, projectDir, posixDir, shq, tmuxName } = require('./connect');
+const { resolveTarget, sshBaseArgs, sshDest, projectDir, posixDir, shq, tmuxName, SSH_BIN } = require('./connect');
+const { Target } = require('./coding-agents/target');
 
 class AgentSession extends BaseSession {
   constructor(mgr, project, opts) {
@@ -75,30 +76,87 @@ class AgentSession extends BaseSession {
 
     // Remote (ssh) or WSL: run `opencode serve` inside tmux on the target, reach it through localhost.
     const name = tmuxName(project, this.name) + '-oc';
-    const serve = `OPENCODE_SERVER_PASSWORD=${shq(this.agentKey)} exec ${agentCmd} serve --hostname 127.0.0.1 --port ${this.remotePort}`;
-    const d = posixDir(dir);
-    const inner = `${d ? `cd ${d} && ` : ''}${serve}`;
-    const startScript = `tmux has-session -t ${shq('=' + name)} 2>/dev/null || tmux new-session -d -s ${shq(name)} ${shq(inner)}`;
+    this.tmuxName = name;
+    const target = new Target(project, host);
+    const started = await this._startRemote(target, name, agentCmd, dir, false);
 
     if (project.type === 'wsl') {
-      const args = project.wslDistro ? ['-d', project.wslDistro] : [];
-      await this._run('wsl.exe', [...args, '--', 'bash', '-lc', startScript]);
       // WSL2 forwards localhost ports to Windows.
       this.client = new OpenCodeClient({ url: `http://127.0.0.1:${this.remotePort}`, password: this.agentKey });
     } else {
-      const target = resolveTarget(project, host);
-      const base = [...sshBaseArgs(project, target)];
-      await this._run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', ...base, sshDest(target), startScript]);
+      const t = resolveTarget(project, host);
+      const base = [...sshBaseArgs(project, t)];
       const localPort = await freePort();
-      const fwd = spawn('ssh', ['-N', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', ...base,
-        '-L', `127.0.0.1:${localPort}:127.0.0.1:${this.remotePort}`, sshDest(target)], { windowsHide: true, stdio: 'ignore' });
+      const fwd = spawn(SSH_BIN, ['-N', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', ...base,
+        '-L', `127.0.0.1:${localPort}:127.0.0.1:${this.remotePort}`, sshDest(t)], { windowsHide: true, stdio: 'ignore' });
       this.procs.push(fwd);
       fwd.on('exit', () => { if (!this._closed) { this._log('ssh forward closed'); this.setStatus('error', 'Connection lost'); } });
       this.client = new OpenCodeClient({ url: `http://127.0.0.1:${localPort}`, password: this.agentKey });
     }
-    this.tmuxName = name;
-    await this.client.waitReady(45000);
+    try {
+      await this.client.waitReady(started === 'running' ? 8000 : 45000);
+    } catch (e) {
+      if (started === 'running') {
+        // A tmux session from an earlier run (other port or password): replace it once.
+        this._log('existing OpenCode tmux session not reachable, restarting it');
+        await this._startRemote(target, name, agentCmd, dir, true);
+        try { await this.client.waitReady(45000); } catch (e2) { throw new Error(await this._remoteFailure(target, name, e2)); }
+      } else {
+        throw new Error(await this._remoteFailure(target, name, e));
+      }
+    }
     this.client.streamEvents();
+  }
+
+  // Starts `opencode serve` in a tmux session on the target. Resolves the binary with the user's
+  // PATH (npm, nvm, ~/.opencode/bin, ...) so tmux does not depend on it, checks for OpenCode v2 and
+  // tmux, and logs the server output to a file for error reports. Returns 'started' or 'running'.
+  async _startRemote(target, name, agentCmd, dir, restart) {
+    const d = posixDir(dir);
+    const log = `$HOME/.cache/agent-terminal-manager/${name}.log`;
+    const script = [
+      target.preamble(),
+      `BIN=$(command -v ${shq(agentCmd)} 2>/dev/null)`,
+      `case "$BIN" in '') echo "@@ERR notfound"; exit 0 ;; /mnt/[a-z]/*) echo "@@ERR windows $BIN"; exit 0 ;; esac`,
+      'echo "@@BIN $BIN"',
+      'echo "@@VERSION $("$BIN" --version 2>&1 </dev/null | head -n 1)"',
+      'command -v tmux >/dev/null 2>&1 || { echo "@@ERR notmux"; exit 0; }',
+      `mkdir -p "$HOME/.cache/agent-terminal-manager"`,
+      restart ? `tmux kill-session -t ${shq('=' + name)} 2>/dev/null; sleep 0.5` : ':',
+      `if tmux has-session -t ${shq('=' + name)} 2>/dev/null; then echo "@@RUNNING"; else`,
+      `  tmux new-session -d -s ${shq(name)} "${d ? `cd ${d.replace(/"/g, '\\"')} && ` : ''}OPENCODE_SERVER_PASSWORD=${shq(this.agentKey)} exec \\"$BIN\\" serve --hostname 127.0.0.1 --port ${this.remotePort} > \\"${log}\\" 2>&1" && echo "@@STARTED" || echo "@@ERR tmuxfail"`,
+      'fi',
+    ].join('\n');
+    const r = await target.run(script, { timeout: 60000 });
+    const line = (tag) => (r.out.split(/\r?\n/).find((l) => l.startsWith(tag)) || '').slice(tag.length).trim();
+    const where = this.project.type === 'wsl' ? `in WSL (${this.project.wslDistro || 'default distribution'})` : 'on the remote host';
+    const err = r.out.split(/\r?\n/).find((l) => l.startsWith('@@ERR '));
+    if (err) {
+      const [, kind, extra] = /^@@ERR (\S+)\s*(.*)$/.exec(err);
+      if (kind === 'notfound') throw new Error(`"${agentCmd}" was not found ${where}. Install OpenCode v2 there (Agents ▾ → Install OpenCode) or set the agent command in the project settings.`);
+      if (kind === 'windows') throw new Error(`Only the Windows OpenCode was found (${extra}). Install OpenCode for Linux inside WSL (Agents ▾ → Install OpenCode).`);
+      if (kind === 'notmux') throw new Error(`tmux is not installed ${where}; agent sessions run OpenCode inside tmux.`);
+      throw new Error(`Could not start the tmux session ${where}.`);
+    }
+    if (!r.out.includes('@@BIN ')) throw new Error(`Could not run commands ${where}: ${(r.err || r.out).trim().slice(0, 300)}`);
+    const version = line('@@VERSION ');
+    const major = Number((/(\d+)\.\d+/.exec(version) || [])[1]);
+    if (major && major < 2) throw new Error(`OpenCode ${version} found ${where}; agent sessions need OpenCode v2 (Agents ▾ → Install OpenCode installs v2).`);
+    this._log(`OpenCode ${version} at ${line('@@BIN ')} ${r.out.includes('@@RUNNING') ? '(already running)' : '(started)'}`);
+    return r.out.includes('@@RUNNING') ? 'running' : 'started';
+  }
+
+  // Builds an error message with the end of the server log and whether the tmux session still runs.
+  async _remoteFailure(target, name, err) {
+    const r = await target.run([
+      `if tmux has-session -t ${shq('=' + name)} 2>/dev/null; then echo "@@ALIVE"; fi`,
+      `tail -n 15 "$HOME/.cache/agent-terminal-manager/${name}.log" 2>/dev/null`,
+    ].join('\n'), { timeout: 30000 }).catch(() => ({ out: '' }));
+    const alive = r.out.includes('@@ALIVE');
+    const log = r.out.replace('@@ALIVE', '').trim();
+    return `OpenCode did not answer on port ${this.remotePort} (${err.message}). ` +
+      (alive ? 'The server is running but not reachable through the tunnel.' : 'The server process exited.') +
+      (log ? `\nServer log (~/.cache/agent-terminal-manager/${name}.log):\n${log}` : '');
   }
 
   _run(file, args) {
