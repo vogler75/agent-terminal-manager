@@ -95,7 +95,7 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup() };
+  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
 }
 
 let activeSessionId = null;

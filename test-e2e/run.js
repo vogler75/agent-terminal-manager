@@ -639,6 +639,27 @@ const cfgBase = () => {
     spawnSync('wsl.exe', ['-d', WSL, '--', 'rm', '-rf', wdir]);
   }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
 
+  await step('Agents: deploy over SSH (detect, write skills and manifest, update removes them)', async () => {
+    await app.evaluate((_e, a) => { const p = globalThis.__atm.store.getProject('p-ssh'); p.agentSetup = { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] }; globalThis.__atm.store.save(); }, { docs: ids.mcpDocs });
+    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-ssh'));
+    assert.ok(rep.ok, JSON.stringify(rep.errors));
+    assert.strictEqual(rep.target, 'posix');
+    const pdir = `~/atm-e2e-${RUN}/proj1`;
+    const m = JSON.parse(sshRun(`cat ${pdir}/.agent-terminal-manager/deployed.json`));
+    assert.ok(m._updated, 'manifest written over SSH');
+    // Write path check independent of installed agents: deploy to a fake agent dir via the target directly.
+    const probe = await app.evaluate(async () => {
+      const { Target } = globalThis.__atm.targetClass();
+      const p = globalThis.__atm.store.getProject('p-ssh');
+      const t = new Target(p, globalThis.__atm.store.getHost(p.hostId));
+      const loc = { base: 'project', rel: '.probe/skills/x/SKILL.md' };
+      const r = await t.run([t.preamble(), t.writeSnippet(loc, 'hello über ssh'), t.readSnippet('k', loc), t.removeDirSnippet({ base: 'project', rel: '.probe' })].join('\n'));
+      return r.out;
+    });
+    assert.ok(probe.includes('@@B ' + Buffer.from('hello über ssh').toString('base64')), 'write/read round trip over SSH: ' + probe.slice(0, 200));
+    assert.match(sshRun(`ls -a ${pdir}`), /^(?![\s\S]*\.probe)/, 'probe dir removed');
+  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+
   // ---------------- Phase 2/6: persistence after restart ----------------
   await step('P2/P6 configuration and open sessions/layout survive restart (tmux re-attach)', async () => {
     await page.click('#sidebar .proj-name:text("lokal")');
