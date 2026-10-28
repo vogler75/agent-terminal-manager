@@ -517,7 +517,8 @@ on('session:updated', (info) => {
   const prev = S.sessions.get(info.id);
   S.sessions.set(info.id, info);
   if (info.kind === 'agent') pages.refreshChatStatus(ctx, info.id);
-  if (!prev || prev.name !== info.name || prev.shared !== info.shared || prev.orchestrator !== info.orchestrator || prev.error !== info.error || prev.status !== info.status) renderSoon();
+  if (!prev || prev.name !== info.name || prev.shared !== info.shared || prev.orchestrator !== info.orchestrator || prev.error !== info.error || (prev.status !== info.status && (prev.status === 'error' || info.status === 'error'))) renderSoon();
+  else updateDots(); // plain status changes only recolor the dots, so clicks and double-clicks are not lost to a re-render
 });
 on('session:status', ({ id, status, lastOutputAt }) => {
   const s = S.sessions.get(id);
