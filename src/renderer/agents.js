@@ -48,7 +48,22 @@ async function fillLibrary(ctx, page) {
       h('button', { title: 'Use another folder, e.g. a git clone of your skills repository', onclick: async () => { if (await call('skillsChooseDir')) { await reload(ctx); fillLibrary(ctx, page); } } }, 'Change folder…'),
       h('button', { class: 'icon', title: 'Rescan', onclick: () => fillLibrary(ctx, page) }, '↻')),
     skillsBox);
-  page.append(mcpCard, skillsCard);
+  const apmLib = S.config.apmLibrary || [];
+  const apmCard = h('div', { class: 'card' },
+    h('div', { class: 'row' }, h('h2', { style: { margin: 0 } }, 'APM packages'), h('div', { class: 'spacer' }),
+      h('button', { class: 'primary', onclick: () => editApm(ctx, null, () => fillLibrary(ctx, page)) }, '+ APM package')),
+    apmLib.length ? h('table', { class: 'list', style: { marginTop: '10px' } },
+      h('tr', null, ['Package', 'Description', ''].map((t) => h('th', null, t))),
+      apmLib.map((e) => h('tr', null,
+        h('td', { class: 'mono' }, e.ref),
+        h('td', null, e.description || h('span', { class: 'muted' }, '–')),
+        h('td', null, h('div', { class: 'row' },
+          h('button', { class: 'icon', title: 'Edit', onclick: () => editApm(ctx, e, () => fillLibrary(ctx, page)) }, '✎'),
+          h('button', { class: 'icon danger', title: 'Delete', onclick: async () => {
+            if (await confirmDialog('Delete APM package', `Remove “${e.ref}” from the library? Projects uninstall it on their next deploy.`, 'Delete')) { await call('apmLibraryDelete', e.id); await reload(ctx); fillLibrary(ctx, page); }
+          } }, '✕')))))) : h('p', { class: 'muted' }, 'No APM packages yet.'),
+    h('p', { class: 'muted' }, 'APM (Agent Package Manager, github.com/microsoft/apm) installs packages of skills, prompts, instructions, agents and MCP servers from Git repositories into each agent’s own folders and pins them in apm.lock.yaml. Select packages per project; Deploy installs them with APM on the project machine, “APM: update packages” moves them to newer versions.'));
+  page.append(mcpCard, skillsCard, apmCard);
 
   const { dir, skills } = await call('skillsList');
   clear(skillsBox);
@@ -115,6 +130,38 @@ async function editServer(ctx, entry, after) {
   });
 }
 
+function editApm(ctx, entry, after) {
+  const ref = h('input', { value: entry ? entry.ref : '', placeholder: 'owner/repo[/path][#ref], e.g. microsoft/apm-sample-package#v1.0.0' });
+  const desc = h('input', { value: entry ? entry.description : '', placeholder: 'What the package contains (optional)' });
+  modal({
+    title: entry ? 'Edit APM package' : 'New APM package',
+    body: h('div', { class: 'form' },
+      ...field('Package', ref, 'GitHub owner/repo, optional sub-path and #tag/#commit; plugin@marketplace; or an https Git URL'),
+      ...field('Description', desc)),
+    onOk: async () => {
+      await ctx.call('apmLibrarySave', { id: entry && entry.id, ref: ref.value, description: desc.value });
+      await reload(ctx);
+      after && after();
+    },
+  });
+}
+
+// Runs an APM action on the project machine and shows its output.
+async function apmAction(ctx, p, action) {
+  const labels = { outdated: 'Checking APM packages for updates', update: 'Updating APM packages', list: 'Listing APM packages', 'self-update': 'Updating the APM CLI' };
+  const t = toast(`${labels[action]} on ${p.name}…`, { ms: 900000 });
+  try {
+    const r = await ctx.call('apmAction', p.id, action);
+    modal({
+      title: `${{ outdated: 'APM package updates', update: 'APM packages updated', list: 'Installed APM packages', 'self-update': 'APM CLI update' }[action]}${r.ok ? '' : ' — failed'}`,
+      okText: null, cancelText: 'Close', width: '900px',
+      body: h('div', null, h('p', { class: 'muted mono' }, r.command), h('pre', { class: 'tool-pre', style: { maxHeight: '420px' } }, r.output || '(no output)')),
+    });
+  } catch (e) {
+    toast(e.message, { error: true, ms: 8000 });
+  } finally { t && t.remove && t.remove(); }
+}
+
 function newSkill(ctx, after) {
   const name = h('input', { placeholder: 'e.g. code-review' });
   const desc = h('input', { placeholder: 'When should the agent use this skill?' });
@@ -140,6 +187,9 @@ export function projectSetupSection(ctx, p, agentsList, skillsList) {
     h('input', { type: 'checkbox', 'data-k': e.id, checked: setup.mcp.includes(e.id) }), e.name, h('span', { class: 'muted' }, e.type === 'http' ? e.url : e.command))) : h('div', { class: 'muted' }, 'No MCP servers in the library yet (Library page).'));
   const skillChecks = h('div', { class: 'checklist', style: { maxHeight: '150px' } }, skillsList.length ? skillsList.map((s) => h('label', { title: s.description },
     h('input', { type: 'checkbox', 'data-k': s.name, checked: setup.skills.includes(s.name) }), s.name, h('span', { class: 'muted' }, s.description.slice(0, 80)))) : h('div', { class: 'muted' }, 'No skills in the repository yet (Library page).'));
+  const apmLib = S.config.apmLibrary || [];
+  const apmChecks = h('div', { class: 'checklist', style: { maxHeight: '150px' } }, apmLib.length ? apmLib.map((e) => h('label', { title: e.description },
+    h('input', { type: 'checkbox', 'data-k': e.id, checked: (setup.apm || []).includes(e.id) }), h('span', { class: 'mono' }, e.ref), h('span', { class: 'muted' }, e.description.slice(0, 80)))) : h('div', { class: 'muted' }, 'No APM packages in the library yet (Library page).'));
   const syncAgents = () => { agentChecks.style.display = agentsMode.value === 'pick' ? '' : 'none'; };
   agentsMode.addEventListener('change', syncAgents);
   syncAgents();
@@ -151,6 +201,7 @@ export function projectSetupSection(ctx, p, agentsList, skillsList) {
       ...field('Agents', h('div', null, agentsMode, h('div', { style: { height: '6px' } }), agentChecks)),
       ...field('MCP servers', mcpChecks),
       ...field('Skills', skillChecks),
+      ...field('APM packages', apmChecks, 'Installed with APM (Agent Package Manager) on the project machine'),
       h('div', { class: 'hint' }, 'Apply with “Agents ▾ → Deploy MCP & skills” in the project header; run it again after changes (Update).'),
     ],
     get: () => ({
@@ -159,6 +210,7 @@ export function projectSetupSection(ctx, p, agentsList, skillsList) {
       agents: agentsMode.value === 'auto' ? 'auto' : checked(agentChecks),
       mcp: checked(mcpChecks),
       skills: checked(skillChecks),
+      apm: checked(apmChecks),
     }),
   };
 }
@@ -174,7 +226,13 @@ export async function agentsMenu(ctx, e, p, activeSessionId) {
     { label: 'Detect installed agents', action: () => detect(ctx, p) },
     { label: 'Configure…', action: () => ctx.editProject(p) },
     '-',
+    { label: 'APM: check for package updates', action: () => apmAction(ctx, p, 'outdated') },
+    { label: 'APM: update packages', action: () => apmAction(ctx, p, 'update') },
+    { label: 'APM: list installed packages', action: () => apmAction(ctx, p, 'list') },
+    '-',
     ...list.map((a) => ({ label: `Install ${a.name}`, action: () => install(ctx, p, a, activeSessionId) })),
+    { label: 'Install APM (Agent Package Manager)', action: () => install(ctx, p, { id: 'apm', name: 'APM' }, activeSessionId) },
+    { label: 'Update APM itself (apm self-update)', action: () => apmAction(ctx, p, 'self-update') },
   ]);
 }
 
@@ -237,5 +295,17 @@ function showReport(rep) {
           a.skills.removed.length ? h('div', { class: 'muted' }, 'removed: ' + a.skills.removed.join(', ')) : null,
           h('div', { class: 'muted mono', style: { fontSize: '10px' } }, a.skills.dir)) : h('span', { class: 'muted' }, '–'),
         a.warnings.map((w) => h('div', { class: 'warn', style: { whiteSpace: 'pre-wrap', fontSize: '11px' } }, w)))))));
+  if (rep.apm) {
+    const a = rep.apm;
+    body.appendChild(h('div', { class: 'card', style: { marginTop: '12px' } },
+      h('div', { class: 'row' }, h('span', { class: 'dot ' + (a.ok ? 'waiting' : 'error') }), h('b', null, 'APM packages'), h('span', { class: 'muted' }, a.version || '')),
+      a.error ? h('p', { class: 'bad' }, a.error) : null,
+      h('p', null, a.packages.length ? '✓ ' + a.packages.join(', ') : h('span', { class: 'muted' }, 'none selected'),
+        a.removed && a.removed.length ? h('span', { class: 'muted' }, ' · removed: ' + a.removed.join(', ')) : null,
+        a.targets && a.targets.length ? h('span', { class: 'muted' }, ' · targets: ' + a.targets.join(', ')) : null),
+      (a.commands || []).map((c) => h('details', { class: 'tool-call' },
+        h('summary', { class: 'tool-head' }, h('span', { class: 'tool-icon ' + (c.ok ? 'ok' : 'bad') }, c.ok ? '✓' : '✗'), h('span', { class: 'tool-subject mono' }, c.cmd)),
+        h('div', { class: 'tool-body' }, h('pre', { class: 'tool-pre' }, c.output || '(no output)'))))));
+  }
   modal({ title: rep.ok ? 'Deployed' : 'Deployed with problems', body, okText: null, cancelText: 'Close', width: '900px' });
 }

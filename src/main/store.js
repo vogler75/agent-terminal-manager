@@ -50,7 +50,7 @@ const PROJECT_DEFAULTS = {
   layout: { mode: 'tabs', active: null },
   openSessions: [], // [{name, command, kind, shared, orchestrator}] restored on start
   // Coding agent setup: which MCP servers / skills to deploy, to which agents, project or user scope.
-  agentSetup: { scope: 'project', agents: 'auto', mcp: [], skills: [] },
+  agentSetup: { scope: 'project', agents: 'auto', mcp: [], skills: [], apm: [] },
 };
 
 function normalizeProject(p) {
@@ -86,6 +86,8 @@ function normalize(data) {
     orchestrators: d.orchestrators || [],
     // MCP servers that can be deployed to coding agents; env/headers are encrypted in `secrets`.
     mcpLibrary: d.mcpLibrary || [],
+    // APM packages (references like owner/repo[/path][#ref]) that projects can install.
+    apmLibrary: d.apmLibrary || [],
   };
 }
 

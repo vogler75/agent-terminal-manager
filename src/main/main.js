@@ -281,6 +281,26 @@ const api = {
     store.save();
   },
 
+  // APM package library
+  apmLibrarySave: (entry) => {
+    const { validRef } = require('./coding-agents/apm');
+    const ref = String(entry.ref || '').trim();
+    if (!validRef(ref)) throw new Error('Invalid package reference. Use owner/repo[/path][#ref], plugin@marketplace or a Git URL.');
+    const e = { id: entry.id || crypto.randomUUID(), ref, description: String(entry.description || '').trim() };
+    const list = store.data.apmLibrary;
+    const i = list.findIndex((x) => x.id === e.id);
+    if (i >= 0) list[i] = e; else list.push(e);
+    store.save();
+    return e.id;
+  },
+  apmLibraryDelete: (id) => {
+    store.data.apmLibrary = store.data.apmLibrary.filter((x) => x.id !== id);
+    for (const p of store.data.projects) if (p.agentSetup) p.agentSetup.apm = (p.agentSetup.apm || []).filter((x) => x !== id);
+    store.save();
+  },
+  apmAction: (projectId, action) => agentSetup().apmAction(store.getProject(projectId), action),
+  agentsTools: () => agentSetup().tools(),
+
   // Skills repository
   skillsList: () => ({ dir: skillsRepo().dir, skills: skillsRepo().list() }),
   skillsCreate: (name, description) => { const f = skillsRepo().create(name, description); shell.openPath(f); return f; },

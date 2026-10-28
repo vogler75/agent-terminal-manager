@@ -119,6 +119,15 @@ Access from outside (Claude app, web, voice mode): directly over the internet be
 
 Codex and Copilot read MCP servers only from the home directory; use the user scope for them (their skills work in both scopes). Every agent is one adapter in `src/main/coding-agents/registry.js` on top of a shared interface (`base.js`); the runner (`deploy.js`) does one read and one write pass over PowerShell or `sh`, with the script sent via stdin.
 
+### APM packages (Agent Package Manager)
+
+[APM](https://github.com/microsoft/apm) installs packages of skills, prompts, instructions, agents and MCP servers from Git repositories into each agent's own folders (`.claude/`, `.github/`, `.agents/`, …) and pins the exact versions in `apm.lock.yaml`.
+
+- **Library → APM packages:** references such as `microsoft/apm-sample-package`, `owner/repo/path#v1.2` (tag or commit), `plugin@marketplace` or a Git URL. Only shell-safe references are accepted.
+- **Project editor → Coding agents → APM packages:** select packages per project. Project scope installs into the project folder (`apm.yml`, `apm.lock.yaml`, `apm_modules/`), user scope uses `apm -g` (`~/.apm/`).
+- **Deploy MCP & skills (update)** runs APM on the project's machine: deselected packages are uninstalled (their files are removed), all selected packages are installed with `--target` set to the agents found there (Claude Code, Copilot, Codex, OpenCode, Cursor, Antigravity). The report shows APM's output.
+- **Agents ▾:** *APM: check for package updates* (`apm outdated`), *APM: update packages* (`apm update --yes`, newer versions within the references, lockfile updated), *APM: list installed packages*, *Install APM* and *Update APM itself* (`apm self-update`).
+
 ## Agent sessions via ACP (Agent Client Protocol)
 
 **+ Agent ▾** in the project header starts structured agent sessions with a chat view:

@@ -741,7 +741,7 @@ const cfgBase = () => {
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     const manifest = JSON.parse(fs.readFileSync(path.join(agentWork, '.agent-terminal-manager', 'deployed.json'), 'utf8'));
     const detected = await page.evaluate(() => window.atm.call('agentsDetect', 'p-agents'));
-    const installed = detected.filter((a) => a.installed).map((a) => a.id);
+    const installed = detected.filter((a) => a.installed && !a.tool).map((a) => a.id); // tools like APM have no manifest entry
     for (const id of installed) assert.ok(manifest[id], 'manifest has ' + id);
     if (installed.includes('claude')) {
       const mcp = JSON.parse(fs.readFileSync(path.join(agentWork, '.mcp.json'), 'utf8')).mcpServers;
@@ -763,6 +763,31 @@ const cfgBase = () => {
       assert.deepStrictEqual(rep.agents.find((a) => a.id === 'claude').mcp.removed, ['github-tools']);
     }
   });
+
+  await step('APM: library entry, deploy installs the package for the agents, check updates, deselect uninstalls', async () => {
+    await page.click('#sidebar button:has-text("Library")');
+    await page.click('button:has-text("+ APM package")');
+    await page.locator('.modal input').first().fill('microsoft/apm-sample-package');
+    await page.locator('.modal button.primary').click();
+    await page.waitForSelector('#library-page td.mono:has-text("microsoft/apm-sample-package")');
+    const lib = await app.evaluate(() => globalThis.__atm.store.data.apmLibrary);
+    const id = lib.find((e) => e.ref === 'microsoft/apm-sample-package').id;
+    await assert.rejects(page.evaluate(() => window.atm.call('apmLibrarySave', { ref: 'owner/repo; rm -rf ~' })), /Invalid package reference/);
+    await app.evaluate((_e, id) => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], skills: [], apm: [id] }; }, id);
+    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    assert.ok(rep.apm && rep.apm.ok, JSON.stringify(rep.apm).slice(0, 1500));
+    assert.ok(fs.existsSync(path.join(agentWork, 'apm.yml')) && fs.readFileSync(path.join(agentWork, 'apm.yml'), 'utf8').includes('microsoft/apm-sample-package'));
+    assert.ok(fs.existsSync(path.join(agentWork, 'apm.lock.yaml')), 'lockfile');
+    if (rep.apm.targets.includes('claude')) assert.ok(fs.existsSync(path.join(agentWork, '.claude', 'skills', 'style-checker', 'SKILL.md')), 'skill deployed for Claude');
+    const out = await page.evaluate(() => window.atm.call('apmAction', 'p-agents', 'outdated'));
+    assert.ok(out.ok && /up-to-date|outdated|Package/i.test(out.output), out.output);
+    // Deselect: the next deploy uninstalls the package and its files.
+    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, apm: [] }; });
+    const rep2 = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    assert.ok(rep2.apm.ok, JSON.stringify(rep2.apm).slice(0, 1500));
+    assert.deepStrictEqual(rep2.apm.removed, ['microsoft/apm-sample-package']);
+    assert.ok(!fs.existsSync(path.join(agentWork, '.claude', 'skills', 'style-checker')), 'skill removed again');
+  }, { skip: process.env.ATM_E2E_APM === '1' ? null : 'ATM_E2E_APM not set' });
 
   await step('Agents: install command is typed into the terminal for the right shell', async () => {
     const r = await page.evaluate(() => window.atm.call('agentsList'));

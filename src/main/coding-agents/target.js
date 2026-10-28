@@ -153,11 +153,16 @@ class Target {
   }
 
   // Run a command, then print its exit status as a marker line.
-  commandSnippet(key, cmd) {
+  // Runs cmd (optionally in a directory: {base, rel}) and prints its output and exit status.
+  // The command gets no input: the script itself arrives on stdin and must not be read by it.
+  commandSnippet(key, cmd, { cwd } = {}) {
     if (this.kind === 'powershell') {
-      return `Write-Output '@@ATM cmd ${key}'\n$global:LASTEXITCODE = 0\ntry { ${cmd} 2>&1 | ForEach-Object { "$_" } } catch { Write-Output $_.Exception.Message; $global:LASTEXITCODE = 1 }\nWrite-Output ('@@EXIT ' + $LASTEXITCODE)`;
+      const cd = cwd ? `Push-Location -LiteralPath ${this.pathExpr(cwd)}; ` : '';
+      const back = cwd ? ' Pop-Location;' : '';
+      return `Write-Output '@@ATM cmd ${key}'\n$global:LASTEXITCODE = 0\n$env:NO_COLOR = '1'\ntry { ${cd}${cmd} 2>&1 | ForEach-Object { "$_" };${back} } catch { Write-Output $_.Exception.Message; $global:LASTEXITCODE = 1 }\nWrite-Output ('@@EXIT ' + $LASTEXITCODE)`;
     }
-    return `echo '@@ATM cmd ${key}'\n( ${cmd} ) 2>&1; echo "@@EXIT $?"`;
+    const cd = cwd ? `cd ${this.pathExpr(cwd)} && ` : '';
+    return `echo '@@ATM cmd ${key}'\n( ${cd}NO_COLOR=1 ${cmd} ) </dev/null 2>&1; echo "@@EXIT $?"`;
   }
 }
 
