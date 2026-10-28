@@ -24,11 +24,14 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
   const { S, call, STATUS_LABEL } = ctx;
   const log = h('div', { class: 'chat-log', 'data-sid': s.id, 'data-compact': compact ? '1' : '' });
   const status = h('div', { class: 'chat-status', 'data-chat-status': s.id });
-  const chat = h('div', { class: 'chat' }, compact ? null : status, log);
+  const perm = h('div', { class: 'perm-box', 'data-perm': s.id });
+  const chat = h('div', { class: 'chat' }, compact ? null : status, log, compact ? null : perm);
   box.appendChild(chat);
   fillStatus(ctx, status, s);
   if (!compact) {
-    const ta = h('textarea', { placeholder: 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands, !cmd for shell)' });
+    const ta = h('textarea', { placeholder: s.kind === 'acp'
+      ? 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands)'
+      : 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands, !cmd for shell)' });
     const slash = slashMenu(ctx, s.id, ta);
     const sendIt = async () => {
       const text = ta.value.trim();
@@ -50,6 +53,7 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
         h('button', { onclick: () => call('agentInterrupt', s.id), title: 'Interrupt the current run' }, 'Stop'))));
   }
   renderMessages(log, S.agentMessages.get(s.id), S.agentLive.get(s.id), { compact });
+  if (!compact) renderPermission(ctx, s.id);
 }
 
 export function fillStatus(ctx, el, s) {
@@ -58,11 +62,11 @@ export function fillStatus(ctx, el, s) {
   // Element.append() would print null as text, so drop empty parts first.
   el.append(...[
     ctx.dot(info.status), h('span', null, ctx.STATUS_LABEL[info.status] || info.status),
-    h('span', { title: info.agentSessionId ? `OpenCode session ${info.agentSessionId} at ${info.url}` : '' }, 'OpenCode'),
+    h('span', { title: info.agentSessionId ? `${info.kind === 'acp' ? 'ACP' : 'OpenCode'} session ${info.agentSessionId}${info.url ? ' at ' + info.url : ''}` : '' }, info.kind === 'acp' ? `${info.agentName || 'Agent'} · ACP` : 'OpenCode'),
     info.model ? h('button', { class: 'model-btn', title: 'Change the model of this session', onclick: () => pickModel(ctx, s.id) }, info.model + ' ▾')
       : info.status !== 'starting' && info.status !== 'error' ? h('span', { class: 'warn' }, '· no model — log in to a provider') : null,
     h('span', { class: 'spacer' }),
-    h('button', { title: 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: () => providerLogin(ctx, s.id) }, 'Provider login'),
+    h('button', { title: info.kind === 'acp' ? `Open a terminal to log in to ${info.agentName || 'the agent'}` : 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: () => providerLogin(ctx, s.id) }, info.kind === 'acp' ? 'Login' : 'Provider login'),
     h('button', { class: 'icon', title: 'Refresh the model after logging in', onclick: () => ctx.call('agentRefreshModel', s.id) }, '↻'),
     info.status === 'error' ? h('button', { onclick: () => ctx.call('reconnect', s.id) }, 'Reconnect') : null,
     // Full-width block: start errors can span several lines (server log excerpt).
@@ -206,6 +210,25 @@ async function pickModel(ctx, sessionId) {
       await ctx.call('agentSetModel', sessionId, selected.providerID, selected.id, variant.value);
       toast(`Model: ${selected.providerID}/${selected.id}${variant.value ? ' (' + variant.value + ')' : ''}`);
     },
+  });
+}
+
+// Permission request of an ACP agent (before a tool call): one button per option.
+export function renderPermission(ctx, id) {
+  const s = ctx.S.sessions.get(id);
+  document.querySelectorAll(`.perm-box[data-perm="${id}"]`).forEach((el) => {
+    clear(el);
+    const p = s && s.permission;
+    if (!p) return;
+    const answer = async (optionId) => {
+      try { await ctx.call('agentPermission', id, optionId); } catch (e) { toast(e.message, { error: true }); }
+    };
+    el.append(
+      h('div', { class: 'perm-title' }, '⚠ The agent asks for permission: ', h('b', null, p.title)),
+      p.input ? h('div', { class: 'tool' }, JSON.stringify(p.input).slice(0, 600)) : null,
+      h('div', { class: 'row', style: { marginTop: '6px', flexWrap: 'wrap' } },
+        ...(p.options || []).map((o) => h('button', { class: /allow/.test(o.kind) ? 'primary' : '', onclick: () => answer(o.id) }, o.name)),
+        h('button', { onclick: () => answer(null) }, 'Cancel')));
   });
 }
 

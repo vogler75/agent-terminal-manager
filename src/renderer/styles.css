@@ -190,3 +190,6 @@ table.list tr:hover td { background: var(--bg2); }
 .model-row.selected { background: var(--bg4); }
 .model-name { flex: 1; min-width: 0; }
 .model-id { color: var(--fg3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.perm-box:empty { display: none; }
+.perm-box { margin: 0 12px 8px; padding: 10px 12px; border: 1px solid var(--amber); border-radius: var(--radius); background: #2a2618; }
+.perm-title { color: #e6dcb5; }

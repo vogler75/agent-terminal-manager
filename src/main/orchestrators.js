@@ -254,7 +254,7 @@ Be economical: you have at most ${o.maxRounds} event rounds before you are pause
       if (!(o.watched || []).includes(key)) continue;
       const rt = this.runtime.get(o.id);
       if (!rt || rt.state === 'stopped' || rt.state === 'error' || rt.state === 'starting') continue;
-      const out = s.kind === 'agent' ? s.lastAssistantText() : s.readOutput({ lines: 40 }).text;
+      const out = s.kind !== 'terminal' ? s.lastAssistantText() : s.readOutput({ lines: 40 }).text;
       rt.queue = rt.queue.filter((e) => e.key !== key);
       rt.queue.push({ key, label: this._keyLabel(key), output: out, at: Date.now() });
       this._drain(o.id);

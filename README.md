@@ -117,6 +117,17 @@ Access from outside (Claude app, web, voice mode): directly over the internet be
 
 Codex, Copilot and Amp read MCP servers only from the home directory; use the user scope for them (their skills work in both scopes). Every agent is one adapter in `src/main/coding-agents/registry.js` on top of a shared interface (`base.js`); the runner (`deploy.js`) does one read and one write pass over PowerShell or `sh`, with the script sent via stdin.
 
+## Agent sessions via ACP (Agent Client Protocol)
+
+**+ Agent ▾** in the project header starts structured agent sessions with a chat view:
+
+- **OpenCode (server API):** `opencode serve` over HTTP (see Connections).
+- **OpenCode via ACP** (`opencode acp`) and **GitHub Copilot via ACP** (`copilot --acp`): the agent runs as a process and talks JSON-RPC over stdin/stdout. Locally it is a child process; on SSH and WSL projects it runs through the same connection (binary found with the user's PATH).
+
+ACP sessions share the chat view and tools with the OpenCode server sessions: streamed answers and tool calls, the model picker, slash commands (`/model`, `/new`, `/stop`, `/login`, `/help` plus the agent's own commands), MCP tools (`send_to_session`, `read_output`, `wait_until_idle`) and orchestrators. When the agent asks for permission before a tool call, a card with its options appears in the chat and the session counts as *waiting* (desktop notification). The conversation and the chosen model are restored after a restart (`session/load`). **Login** opens a terminal with `opencode auth login` or `copilot login`.
+
+The implementation is in `src/main/acp.js`; another ACP agent is one entry in `ACP_AGENTS`. ACP sessions do not run in tmux, so a dropped SSH connection ends the agent process (the conversation can be resumed with Reconnect).
+
 ## Orchestrators (OpenCode)
 
 Under **Orchestrators** you can create several orchestrators, each with a name, system prompt (templates “Developer + reviewer”, “Watch”), model (`provider/model`, empty = OpenCode default), maximum rounds and the watched sessions picked by checkbox. On start the app launches its own `opencode serve`, registers the app's MCP server with a token valid only for those sessions, and creates an OpenCode session with the system prompt.

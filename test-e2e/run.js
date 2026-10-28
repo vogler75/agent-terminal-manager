@@ -590,6 +590,49 @@ const cfgBase = () => {
     await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`via-mcp-${RUN}`)), { msg: 'shell via MCP', timeout: 30000 });
   }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
 
+  // ACP sessions run in their own project with a temporary folder, so agents never write elsewhere.
+  const acpStep = async (agent, label) => {
+    const work = path.join(dir, 'acp-' + agent);
+    fs.mkdirSync(work, { recursive: true });
+    await app.evaluate((_e, a) => { if (!globalThis.__atm.store.getProject('p-acp')) globalThis.__atm.store.saveProject({ id: 'p-acp', name: 'acp', type: 'local', tmux: false, directory: a.work }); else globalThis.__atm.store.getProject('p-acp').directory = a.work; }, { work });
+    await page.click('#sidebar .proj-name:text("acp")');
+    await page.click('#main .main-head button:has-text("+ Agent")');
+    await page.click(`.menu div:has-text("${label}")`);
+    const id = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-acp' && s.kind === 'acp' && s.name.startsWith(agent))?.id, { msg: 'acp session' });
+    await waitFor(async () => (await m.status(id)) === 'waiting', { msg: `${agent} ready`, timeout: 90000 });
+    await page.waitForSelector(`.chat-status:has-text("ACP")`);
+    await page.fill('.chat-input textarea', 'Reply with exactly the word PONG and nothing else. Do not use tools.');
+    await page.keyboard.press('Enter');
+    await waitFor(async () => /PONG/i.test(await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).lastAssistantText(), id)), { msg: `${agent} answers`, timeout: 180000 });
+    await waitFor(async () => (await m.status(id)) === 'waiting', { msg: 'turn finished', timeout: 60000 });
+    const models = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).listModels(), id);
+    assert.ok(models.models.length > 0 && models.current, `${agent} reports models`);
+    const ta = page.locator('.chat-input textarea');
+    await ta.fill('');
+    await ta.type('/comp');
+    await page.waitForSelector('.slash-menu .slash-item:has-text("/compact")');
+    await ta.fill('');
+    const out = await callTool(client, 'read_output', { session: `acp/${agent}`, lines: 10 }).catch(() => null);
+    if (out) assert.ok(out.messages.some((x) => x.role === 'assistant'), 'read_output over MCP returns messages');
+    return { id, work };
+  };
+
+  await step('ACP: OpenCode via Agent Client Protocol (chat, models, commands)', async () => {
+    await acpStep('opencode', 'OpenCode via ACP');
+    await shot('acp-opencode');
+  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+
+  await step('ACP: GitHub Copilot via Agent Client Protocol (chat, models, permission request)', async () => {
+    const { id, work } = await acpStep('copilot', 'GitHub Copilot via ACP');
+    await page.fill('.chat-input textarea', 'Create a file named acp-test.txt in the current directory containing the text hi. Use your file writing tool.');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.perm-box button.primary', { timeout: 180000 });
+    await shot('acp-copilot-permission');
+    assert.strictEqual(await m.status(id), 'waiting', 'waiting for permission');
+    await page.click('.perm-box button.primary');
+    await waitFor(() => fs.existsSync(path.join(work, 'acp-test.txt')), { msg: 'file written after permission', timeout: 120000 });
+  }, { skip: process.env.ATM_E2E_COPILOT === '1' ? null : 'ATM_E2E_COPILOT not set' });
+
   await step('P8 orchestrator: start, MCP tools, conflict check, events, pause/stop, max rounds', async () => {
     const devKey = 'p-local/dev';
     const revKey = 'p-local/reviewer';

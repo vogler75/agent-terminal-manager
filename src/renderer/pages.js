@@ -495,7 +495,7 @@ function editOrchestrator(ctx, o) {
     return h('label', { title: taken ? 'Already controlled by ' + taken : '' },
       h('input', { type: 'checkbox', 'data-k': k, checked: (x.watched || []).includes(k), disabled: !!taken }),
       h('span', { class: 'dot ' + (s ? s.status : 'none') }), `${p ? p.name : '?'} / ${nm}`,
-      s && s.kind === 'agent' ? h('span', { class: 'tag' }, 'agent') : null,
+      s && s.kind !== 'terminal' ? h('span', { class: 'tag' }, s.kind === 'acp' ? 'acp' : 'agent') : null,
       !s ? h('span', { class: 'muted' }, '(not running)') : null,
       taken ? h('span', { class: 'bad' }, `(${taken})`) : null);
   }) : h('div', { class: 'muted' }, 'No running sessions. Open the sessions that should be controlled first.'));

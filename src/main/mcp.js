@@ -275,7 +275,7 @@ class McpService extends EventEmitter {
       const s = this._resolve(ctx, session, project);
       const out = s.readOutput({ lines: lines || 50, since });
       const r = { session: s.name, project: s.project.name, status: s.status, marker: out.marker, output: out.text };
-      if (s.kind === 'agent') r.messages = s.messages.slice(-(lines || 20));
+      if (s.kind !== 'terminal') r.messages = s.messages.slice(-(lines || 20));
       return r;
     });
 
@@ -331,12 +331,13 @@ class McpService extends EventEmitter {
       return { ok: true, session: s.name, project: s.project.name };
     }, { write: true });
 
-    tool('open_session', 'Open a new session in a project with its default session configuration (optionally a custom name, start command or kind "agent" for OpenCode).', {
+    tool('open_session', 'Open a new session in a project with its default session configuration. Optional: custom name, start command, kind "agent" (OpenCode server API) or "acp" (Agent Client Protocol, with acp_agent "opencode" or "copilot").', {
       project: z.string(),
       name: z.string().optional(),
       command: z.string().optional(),
-      kind: z.enum(['terminal', 'agent']).optional(),
-    }, async ({ project, name, command, kind }) => {
+      kind: z.enum(['terminal', 'agent', 'acp']).optional(),
+      acp_agent: z.enum(['opencode', 'copilot']).optional(),
+    }, async ({ project, name, command, kind, acp_agent }) => {
       this._require('allowOpenSession', 'Opening sessions');
       const p = this.store.findProject(project);
       if (!p) throw new Error('Unknown project ' + project);
@@ -344,6 +345,7 @@ class McpService extends EventEmitter {
       if (name) opts.name = name;
       if (command !== undefined) opts.command = command;
       if (kind) opts.kind = kind;
+      if (kind === 'acp') opts.acpAgent = acp_agent || 'opencode';
       const s = this.sessions.open(p.id, opts);
       if (ctx.base && ctx.base.sessionKeys) ctx.base.sessionKeys.add(`${s.projectId}/${s.name}`);
       return this._sessionInfo(s);

@@ -1,7 +1,7 @@
 // Renderer entry: state, sidebar (project tree), project views (tabs / tiles), overview and shortcuts.
 import { h, clear, toast, contextMenu, prompt, confirmDialog, timeAgo } from './ui.js';
 import { TermView } from './terms.js';
-import { renderChat, renderChatLog } from './chat.js';
+import { renderChat, renderChatLog, renderPermission } from './chat.js';
 import * as pages from './pages.js';
 import * as agents from './agents.js';
 
@@ -86,7 +86,7 @@ function focusActive() {
     const t = terms.get(id);
     if (t && S.view === 'project') t.focus();
     const ta = document.querySelector('.chat-input textarea');
-    if (ta && S.sessions.get(id) && S.sessions.get(id).kind === 'agent') ta.focus();
+    if (ta && S.sessions.get(id) && S.sessions.get(id).kind !== 'terminal') ta.focus();
   }, 30);
 }
 
@@ -165,7 +165,7 @@ function renderSidebar() {
         },
         dot(s.status, { 'data-dot': s.id }),
         h('span', { class: 'sess-name' }, s.name),
-        s.kind === 'agent' ? h('span', { class: 'badge' }, 'agent') : null,
+        s.kind !== 'terminal' ? h('span', { class: 'badge', title: s.kind === 'acp' ? (s.agentName || '') + ' via ACP' : 'OpenCode server API' }, s.kind === 'acp' ? 'acp' : 'agent') : null,
         s.orchestrator ? h('span', { class: 'badge', title: 'Orchestrator-Session' }, 'orch') : null,
         !s.shared ? h('span', { class: 'badge', title: 'Not shared with MCP' }, 'private') : null));
       }
@@ -191,7 +191,9 @@ function renderSidebar() {
 function projectMenu(e, p) {
   contextMenu(e.clientX, e.clientY, [
     { label: 'New session', action: () => openSession(p.id) },
-    { label: 'New agent session (OpenCode)', action: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }) },
+    { label: 'New agent session (OpenCode server)', action: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }) },
+    { label: 'New ACP agent: OpenCode', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'opencode', name: 'opencode', command: '' }) },
+    { label: 'New ACP agent: GitHub Copilot', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'copilot', name: 'copilot', command: '' }) },
     { label: 'Start all terminals', action: () => startAll(p.id) },
     '-',
     { label: 'Tile view', action: () => { S.projectId = p.id; S.view = 'project'; setMode(p, 'tiles'); } },
@@ -214,6 +216,17 @@ function sessionMenu(e, s) {
     '-',
     { label: 'Close (tmux keeps running)', action: () => closeSession(s.id, false) },
     { label: 'Close and kill tmux session', action: () => closeSession(s.id, true) },
+  ]);
+}
+
+// Structured agent sessions: OpenCode server API or any agent via ACP.
+function agentMenu(e, p) {
+  const r = e.currentTarget.getBoundingClientRect();
+  contextMenu(r.left, r.bottom + 2, [
+    { label: 'OpenCode (server API)', action: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }) },
+    '-',
+    { label: 'OpenCode via ACP', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'opencode', name: 'opencode', command: '' }) },
+    { label: 'GitHub Copilot via ACP', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'copilot', name: 'copilot', command: '' }) },
   ]);
 }
 
@@ -274,7 +287,7 @@ function renderProject(main) {
     forwardInfo(p),
     h('div', { class: 'spacer' }),
     h('button', { onclick: () => openSession(p.id), title: 'New session with the default configuration (Ctrl+Shift+T)' }, '+ Session'),
-    h('button', { onclick: () => openSession(p.id, { kind: 'agent', name: 'agent', command: '' }), title: 'OpenCode in server mode, controlled via its API' }, '+ Agent'),
+    h('button', { onclick: (e) => agentMenu(e, p), title: 'Start a structured agent session (chat view)' }, '+ Agent ▾'),
     (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Start all configured terminals' }, '▶ All') : null,
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
     h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Tile view (Ctrl+Shift+G)' }, 'Tiles'),
@@ -320,7 +333,7 @@ function renderProject(main) {
 function mountSession(container, s, { fontSize, compact = false } = {}) {
   const box = h('div', { class: 'single' });
   container.appendChild(box);
-  if (s.kind === 'agent') {
+  if (s.kind !== 'terminal') {
     renderChat(ctx, box, s, { compact });
     return;
   }
@@ -358,7 +371,7 @@ function renderTiles(main, p, list) {
     const body = h('div', { class: 'tile-body' });
     const tile = h('div', { class: 'tile' + (s.id === aid ? ' focused' : ''), style: g.big && i === 0 ? { gridRow: '1 / 3' } : null },
       h('div', { class: 'tile-head', title: 'Click: single view', onclick: () => selectSession(s.id), oncontextmenu: (e) => { e.preventDefault(); sessionMenu(e, s); } },
-        dot(s.status, { 'data-dot': s.id }), h('span', null, s.name), s.kind === 'agent' ? h('span', { class: 'tag' }, 'agent') : null,
+        dot(s.status, { 'data-dot': s.id }), h('span', null, s.name), s.kind !== 'terminal' ? h('span', { class: 'tag' }, s.kind === 'acp' ? 'acp' : 'agent') : null,
         h('span', { class: 'spacer' }), h('span', { class: 'muted' }, '⤢')),
       body);
     tile.addEventListener('mousedown', () => {
@@ -516,7 +529,7 @@ on('session:closed', ({ id }) => {
 on('session:updated', (info) => {
   const prev = S.sessions.get(info.id);
   S.sessions.set(info.id, info);
-  if (info.kind === 'agent') pages.refreshChatStatus(ctx, info.id);
+  if (info.kind !== 'terminal') { pages.refreshChatStatus(ctx, info.id); renderPermission(ctx, info.id); }
   if (!prev || prev.name !== info.name || prev.shared !== info.shared || prev.orchestrator !== info.orchestrator || prev.error !== info.error || (prev.status !== info.status && (prev.status === 'error' || info.status === 'error'))) renderSoon();
   else updateDots(); // plain status changes only recolor the dots, so clicks and double-clicks are not lost to a re-render
 });
@@ -528,10 +541,11 @@ on('session:status', ({ id, status, lastOutputAt }) => {
   s.lastOutputAt = lastOutputAt;
   if (status === 'error' || wasError) { call('getState').then((st) => { for (const i of st.sessions) S.sessions.set(i.id, i); renderSoon(); }); }
   updateDots();
-  if (s.kind === 'agent') pages.refreshChatStatus(ctx, id);
+  if (s.kind !== 'terminal') pages.refreshChatStatus(ctx, id);
 });
 on('agent:messages', ({ id, messages }) => { S.agentMessages.set(id, messages); S.agentLive.delete(id); renderChatLog(ctx, id); });
 on('agent:live', ({ id, text }) => { S.agentLive.set(id, text); renderChatLog(ctx, id); });
+on('agent:permission', ({ id, permission }) => { const s = S.sessions.get(id); if (s) s.permission = permission; renderPermission(ctx, id); });
 on('agent:log', ({ id, line }) => { const l = S.agentLog.get(id) || []; l.push(line); S.agentLog.set(id, l.slice(-50)); });
 on('hosts:status', (snap) => { S.hosts = snap; if (S.view === 'hosts') pages.renderHostsTable(ctx); });
 on('forwards:status', (snap) => { S.forwards = snap; if (S.view === 'project') renderSoon(); });

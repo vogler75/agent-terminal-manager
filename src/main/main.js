@@ -5,6 +5,7 @@ const fs = require('fs');
 const { Store } = require('./store');
 const { SessionManager } = require('./sessions');
 const { AgentSession } = require('./agent');
+const { AcpSession, ACP_AGENTS } = require('./acp');
 const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
 const { AuditLog } = require('./audit');
@@ -63,6 +64,7 @@ function setup() {
   audit = new AuditLog(dataDir);
   sessions = new SessionManager(store);
   sessions.agentFactory = (mgr, project, opts) => new AgentSession(mgr, project, opts);
+  sessions.acpFactory = (mgr, project, opts) => new AcpSession(mgr, project, opts);
   hosts = new HostMonitor(store, sessions);
   forwards = new ForwardManager(store, sessions);
   mcp = new McpService({ store, sessions, hosts, audit });
@@ -76,10 +78,11 @@ function setup() {
   sessions.on('agent-messages', (s, messages) => send('agent:messages', { id: s.id, messages }));
   sessions.on('agent-live', (s, text) => send('agent:live', { id: s.id, text }));
   sessions.on('agent-log', (s, line) => send('agent:log', { id: s.id, line }));
+  sessions.on('agent-permission', (s, permission) => send('agent:permission', { id: s.id, permission }));
   sessions.on('status', (s, prev, reason) => {
     send('session:status', { id: s.id, status: s.status, prev, reason, lastOutputAt: s.lastOutputAt });
     // Notify when an agent switches to "waiting", but not for the first prompt of a fresh shell.
-    if (s.status === 'waiting' && (prev === 'working') && (s.hadInput || s.kind === 'agent')) {
+    if (s.status === 'waiting' && (prev === 'working') && (s.hadInput || s.kind !== 'terminal')) {
       const p = s.project;
       const focused = win && win.isFocused() && activeSessionId === s.id;
       if (!focused) notify(`${p ? p.name : ''} / ${s.name}`, reason === 'bell' ? 'Waiting for input (bell)' : 'Agent is waiting / finished', () => send('focus-session', { id: s.id }));
@@ -177,6 +180,8 @@ const api = {
   agentMessages: (id) => { const s = sessions.get(id); return s && s.refresh ? s.refresh() : []; },
   agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
   agentRefreshModel: (id) => { const s = sessions.get(id); return s && s.refreshModel ? s.refreshModel() : null; },
+  acpAgents: () => Object.entries(ACP_AGENTS).map(([id, a]) => ({ id, name: a.name })),
+  agentPermission: (id, optionId) => { const s = sessions.get(id); if (!s || !s.answerPermission) throw new Error('not an ACP session'); return s.answerPermission(optionId); },
   agentSlashCommands: (id) => { const s = sessions.get(id); if (!s || !s.slashCommands) throw new Error('not an agent session'); return s.slashCommands(); },
   agentRunSlash: (id, text) => { const s = sessions.get(id); if (!s || !s.runSlash) throw new Error('not an agent session'); return s.runSlash(text); },
   agentModels: (id) => { const s = sessions.get(id); if (!s || !s.listModels) throw new Error('not an agent session'); return s.listModels(); },
@@ -192,14 +197,15 @@ const api = {
     if (!s) throw new Error('no session');
     const p = s.project;
     let cmd;
-    if (p.type === 'local') {
+    if (s.loginCommand) cmd = s.loginCommand();
+    else if (p.type === 'local') {
       const bin = findOpencode(store.settings.opencodePath || (p.agentCommand !== 'opencode' ? p.agentCommand : ''));
       if (!bin) throw new Error('OpenCode binary not found. Set its path in Settings.');
       cmd = process.platform === 'win32' ? `& '${bin.replace(/'/g, "''")}' auth login` : `'${bin.replace(/'/g, "'\\''")}' auth login`;
     } else {
       cmd = `${p.agentCommand || 'opencode'} auth login`;
     }
-    const t = sessions.open(p.id, { name: 'opencode-login', command: '', kind: 'terminal' });
+    const t = sessions.open(p.id, { name: (s.acpAgent || 'opencode') + '-login', command: '', kind: 'terminal' });
     setTimeout(() => t.send(cmd).catch(() => {}), 1500);
     audit.add({ source: 'app', action: 'agents.provider-login', detail: `${p.name}/${s.name}` });
     return t.info();

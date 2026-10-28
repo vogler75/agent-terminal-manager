@@ -332,7 +332,9 @@ class SessionManager extends EventEmitter {
     const tpl = { ...project.defaultSession, ...opts };
     const name = opts.exactName ? opts.name : this.uniqueName(projectId, tpl.name || 'shell');
     const o = { ...tpl, name };
-    const s = o.kind === 'agent' ? this.agentFactory(this, project, o) : new TerminalSession(this, project, o);
+    const s = o.kind === 'agent' ? this.agentFactory(this, project, o)
+      : o.kind === 'acp' ? this.acpFactory(this, project, o)
+      : new TerminalSession(this, project, o);
     this.sessions.set(s.id, s);
     this.emit('opened', s);
     this.persistOpen(projectId);
