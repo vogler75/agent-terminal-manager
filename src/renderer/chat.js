@@ -3,21 +3,113 @@ import { h, clear, toast, modal } from './ui.js';
 
 export function renderMessages(container, messages, live, { compact = false } = {}) {
   const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+  // Expanded tool calls stay expanded across live re-renders.
+  const open = container._openTools || (container._openTools = new Set());
   clear(container);
   const list = (messages || []).filter((m) => m.role !== 'idle');
   const shown = compact ? list.slice(-6) : list;
+  let toolGroup = null; // consecutive tool-only assistant messages share one box
   for (const m of shown) {
-    const isEvent = m.role === 'user' && m.text.startsWith('[ATM event]');
+    const tools = m.tools || [];
+    const isEvent = m.role === 'user' && (m.text || '').startsWith('[ATM event]');
+    if (m.role === 'assistant' && !m.text && tools.length && !m.error) {
+      if (!toolGroup) {
+        toolGroup = h('div', { class: 'msg assistant tools-only' }, m.time && !compact ? h('div', { class: 'meta' }, new Date(m.time).toLocaleTimeString()) : null);
+        container.appendChild(toolGroup);
+      }
+      tools.forEach((t, i) => toolGroup.appendChild(toolLine(t, `${m.id}:${t.id || i}`, open, compact)));
+      continue;
+    }
+    toolGroup = null;
+    const thinking = m.role === 'assistant' && !m.text && !tools.length && !m.done;
     const el = h('div', { class: 'msg ' + (isEvent ? 'event' : m.role) },
       m.time && !compact ? h('div', { class: 'meta' }, new Date(m.time).toLocaleTimeString() + (isEvent ? ' · event' : '')) : null,
-      m.text || (m.role === 'assistant' && !(m.tools || []).length ? (m.done ? '' : '…') : ''),
+      thinking ? h('span', { class: 'thinking' }, 'thinking…')
+        : m.role === 'assistant' && !compact ? markdown(m.text || '') : (m.text || ''),
       m.error ? h('div', { class: 'bad' }, m.error) : null,
-      (m.tools || []).map((t) => h('div', { class: 'tool' }, `⚙ ${t.name} · ${t.status || ''}` + (t.input && !compact ? '\n' + JSON.stringify(t.input).slice(0, 400) : '') + (t.result && !compact ? '\n→ ' + t.result.slice(0, 800) : ''))));
+      tools.length ? h('div', { class: 'tool-list' }, tools.map((t, i) => toolLine(t, `${m.id}:${t.id || i}`, open, compact))) : null);
     container.appendChild(el);
   }
-  if (live) container.appendChild(h('div', { class: 'msg assistant live' }, live));
+  if (live) container.appendChild(h('div', { class: 'msg assistant live' }, compact ? live : markdown(live)));
   if (!shown.length && !live) container.appendChild(h('div', { class: 'muted' }, 'No messages yet.'));
   if (atBottom || compact) container.scrollTop = container.scrollHeight;
+}
+
+const TOOL_ICON = { completed: '✓', error: '✗', failed: '✗', running: '◌', pending: '◌', in_progress: '◌', streaming: '◌' };
+
+// The most telling argument of a tool call (path, pattern, command, ...), shortened.
+function toolSubject(input) {
+  if (!input || typeof input !== 'object') return '';
+  for (const k of ['path', 'filePath', 'file_path', 'fileName', 'pattern', 'command', 'cmd', 'url', 'query', 'description', 'prompt']) {
+    if (typeof input[k] === 'string' && input[k]) return input[k];
+  }
+  const first = Object.values(input).find((v) => typeof v === 'string' && v);
+  return first || '';
+}
+
+// First meaningful line of a tool result, e.g. "Found 8 matches" or "Read file …, lines 1-426".
+function toolSummary(result) {
+  const line = String(result || '').split('\n').map((l) => l.trim()).find((l) => l && !/^[{[]/.test(l));
+  return line ? line.replace(/^→\s*/, '').slice(0, 120) : '';
+}
+
+function toolLine(t, key, open, compact) {
+  const icon = TOOL_ICON[t.status] || '•';
+  const cls = t.status === 'completed' ? 'ok' : (t.status === 'error' || t.status === 'failed') ? 'bad' : 'warn';
+  const head = h('summary', { class: 'tool-head' },
+    h('span', { class: 'tool-icon ' + cls }, icon),
+    h('span', { class: 'tool-name' }, t.name || 'tool'),
+    h('span', { class: 'tool-subject mono' }, toolSubject(t.input)),
+    !compact ? h('span', { class: 'tool-summary' }, toolSummary(t.result)) : null);
+  if (compact) return h('div', { class: 'tool-call' }, head);
+  const det = h('details', { class: 'tool-call', open: open.has(key) },
+    head,
+    h('div', { class: 'tool-body' },
+      t.input ? h('div', { class: 'tool-label' }, 'Input') : null,
+      t.input ? h('pre', { class: 'tool-pre' }, JSON.stringify(t.input, null, 2)) : null,
+      t.result ? h('div', { class: 'tool-label' }, 'Output') : null,
+      t.result ? h('pre', { class: 'tool-pre' }, t.result) : null));
+  det.addEventListener('toggle', () => { if (det.open) open.add(key); else open.delete(key); });
+  return det;
+}
+
+// Small Markdown renderer for agent answers (code blocks, inline code, bold, headings, lists).
+// Builds DOM nodes, never HTML strings, so agent output cannot inject markup.
+function markdown(text) {
+  const root = h('div', { class: 'md' });
+  const parts = String(text).split(/^```[^\n]*\n?/m);
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) { root.appendChild(h('pre', { class: 'md-code' }, part.replace(/\n$/, ''))); return; }
+    let listEl = null;
+    for (const raw of part.split('\n')) {
+      const line = raw.replace(/\s+$/, '');
+      const head = /^(#{1,4})\s+(.*)$/.exec(line);
+      const item = /^\s*(?:[-*]|\d+\.)\s+(.*)$/.exec(line);
+      if (item) {
+        if (!listEl) { listEl = h(/^\s*\d/.test(line) ? 'ol' : 'ul'); root.appendChild(listEl); }
+        listEl.appendChild(h('li', null, inline(item[1])));
+        continue;
+      }
+      listEl = null;
+      if (head) root.appendChild(h('div', { class: 'md-h md-h' + head[1].length }, inline(head[2])));
+      else if (line.trim()) root.appendChild(h('p', null, inline(line)));
+    }
+  });
+  return root;
+}
+
+function inline(text) {
+  const out = [];
+  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(m[0].startsWith('`') ? h('code', { class: 'md-inline' }, m[0].slice(1, -1)) : h('b', null, m[0].slice(2, -2)));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
 }
 
 export function renderChat(ctx, box, s, { compact = false } = {}) {

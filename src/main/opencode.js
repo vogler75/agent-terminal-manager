@@ -223,7 +223,7 @@ function simplifyMessages(msgs) {
           let result = '';
           if (st.status === 'completed') result = (st.content || []).map((x) => x.text || '').join('\n');
           else if (st.status === 'error') result = st.error ? (st.error.message || JSON.stringify(st.error)) : 'error';
-          tools.push({ name: c.name, status: st.status, input: st.input, result: result.slice(0, 4000) });
+          tools.push({ id: c.id, name: c.name, status: st.status, input: st.input, result: result.slice(0, 4000) });
         }
       }
       out.push({ id: m.id, role: 'assistant', text: parts.join('\n'), tools, time: m.time && m.time.created, done: !!(m.time && m.time.completed), error: m.error && (m.error.message || String(m.error)) });
