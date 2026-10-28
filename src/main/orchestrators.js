@@ -180,6 +180,7 @@ Context from the Agent Terminal Manager:
 Your name is "${o.name}". You may access exactly these sessions (project/name):
 ${watched}
 Use "project/name" as the session argument of the atm tools.
+Sessions of kind "agent" or "acp" are agent sessions: their status is exact and read_output returns structured messages, so prefer them for delegating work. Sessions of kind "terminal" are text terminals (a shell or an agent TUI); their "waiting" status is guessed from output pauses, so always read the output before you continue.
 When a watched session becomes idle, you receive a message starting with "[ATM event]" that contains its latest output.
 Be economical: you have at most ${o.maxRounds} event rounds before you are paused.`;
   }

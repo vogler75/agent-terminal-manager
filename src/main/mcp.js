@@ -8,6 +8,16 @@ const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/ser
 const { SubscribeRequestSchema, UnsubscribeRequestSchema, isInitializeRequest } = require('@modelcontextprotocol/sdk/types.js');
 const { z } = require('zod');
 
+// Sent to MCP clients on initialize; most clients put it into the model's context.
+const SERVER_INSTRUCTIONS = `Agent Terminal Manager: control coding agents and terminals running in projects.
+
+Session kinds (see list_sessions):
+- "agent" (OpenCode server API) and "acp" (Agent Client Protocol, e.g. OpenCode or GitHub Copilot): agent sessions. Prefer these when you delegate work to an agent: send_to_session sends a prompt, the status comes from the agent itself (working until the turn is done), and read_output returns structured messages including tool calls. Slash commands like "/compact" can be sent as text.
+- "terminal": a text terminal. It can run a plain shell or an agent TUI (e.g. Claude Code). send_to_session types the text and presses Enter, read_output returns the screen text. Its status is guessed: "waiting" means no output for a few seconds (or a terminal bell), so a long silent command can look idle. Use terminals for shell commands, or for agents that only run in a terminal.
+
+Typical loop: list_sessions -> send_to_session -> wait_until_idle (or wait_for_any_idle for several sessions) -> read_output. Read the output before deciding; do not assume a result.
+If a session reports waiting_for a permission, the user must answer it in the app.`;
+
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const VERSION = require('../../package.json').version;
 
@@ -225,7 +235,16 @@ class McpService extends EventEmitter {
 
   _sessionInfo(s) {
     const i = s.info();
-    return { id: i.id, project: i.project, name: i.name, kind: i.kind, status: i.status, idle_seconds: Math.round((Date.now() - i.lastOutputAt) / 1000), command: i.command, resource: statusUri(s) };
+    const r = {
+      id: i.id, project: i.project, name: i.name, kind: i.kind,
+      interface: i.kind === 'terminal' ? 'terminal (text screen; status guessed from output pauses)' : 'agent (structured messages; exact status)',
+      status: i.status, idle_seconds: Math.round((Date.now() - i.lastOutputAt) / 1000), command: i.command, resource: statusUri(s),
+    };
+    if (i.kind === 'acp') r.agent = i.agentName;
+    if (i.kind === 'agent') r.agent = 'OpenCode';
+    if (i.model) r.model = i.model;
+    if (i.permission) r.waiting_for = `permission: ${i.permission.title} (answer in the app)`;
+    return r;
   }
 
   _require(flag, label) {
@@ -237,7 +256,7 @@ class McpService extends EventEmitter {
     const ctx = client.ctx;
     const server = new McpServer(
       { name: 'agent-terminal-manager', version: VERSION },
-      { capabilities: { resources: { subscribe: true, listChanged: true }, logging: {} } },
+      { capabilities: { resources: { subscribe: true, listChanged: true }, logging: {} }, instructions: SERVER_INSTRUCTIONS },
     );
     const text = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });
 
@@ -261,7 +280,7 @@ class McpService extends EventEmitter {
     tool('list_projects', 'List configured projects.', {}, async () =>
       this.store.data.projects.map((p) => ({ id: p.id, name: p.name, type: p.type, host: p.hostId ? (this.store.getHost(p.hostId) || {}).name : p.host, directory: p.directory, commands: (p.commands || []).map((c) => c.name) })));
 
-    tool('list_sessions', 'List running sessions (terminals and agents) with project, name and status (working | waiting | starting | exited | error).', { project: z.string().optional() }, async ({ project }) => {
+    tool('list_sessions', 'List running sessions with project, name, kind and status (working | waiting | starting | exited | error). kind "agent"/"acp" = agent session with structured messages (preferred for delegating work); kind "terminal" = text terminal (a plain shell or an agent TUI running in it).', { project: z.string().optional() }, async ({ project }) => {
       let list = this._visible(ctx);
       if (project) { const p = this.store.findProject(project); list = list.filter((s) => p && s.projectId === p.id); }
       return list.map((s) => this._sessionInfo(s));

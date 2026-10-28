@@ -403,6 +403,15 @@ const cfgBase = () => {
     assert.strictEqual(r2.output.trim(), '');
   });
 
+  await step('P7 server instructions explain agent vs. terminal sessions; list_sessions reports the interface', async () => {
+    const instr = client.getInstructions();
+    assert.match(instr, /Prefer these when you delegate work/);
+    assert.match(instr, /plain shell or an agent TUI/);
+    const list = await callTool(client, 'list_sessions');
+    const dev = list.find((s) => s.name === 'dev');
+    assert.match(dev.interface, /^terminal/);
+  });
+
   await step('P7 wait_for_any_idle returns the first finished session', async () => {
     await callTool(client, 'send_to_session', { session: 'lokal/dev', text: IS_WIN ? '1..12 | % { "dev-busy$_"; Start-Sleep -Milliseconds 500 }' : 'for i in $(seq 1 12); do echo dev-busy$i; sleep 0.5; done' });
     await callTool(client, 'send_to_session', { session: 'lokal/reviewer', text: IS_WIN ? 'Start-Sleep 1; "rev-fertig"' : 'sleep 1; echo rev-fertig' });
