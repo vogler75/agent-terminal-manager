@@ -117,3 +117,7 @@ The OpenCode program is detected automatically (on Windows including the platfor
 ## Data
 
 `config.json`, `audit.log` and orchestrator working folders live in the app data folder (Settings → Open data folder). Export/import as JSON via Settings or the File menu; tokens are not exported.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
