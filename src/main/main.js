@@ -120,7 +120,7 @@ function agentSetup() {
 }
 
 function skillsRepo() {
-  return new SkillsRepo(store.settings.skillsDir || path.join(app.getPath('userData'), 'skills'));
+  return new SkillsRepo(store.settings.skillsDir || path.join(app.getPath('userData'), 'skills'), store.data.skillSources || []);
 }
 
 // IPC API exposed to the renderer.
@@ -305,6 +305,61 @@ const api = {
   apmDescribeRef: (ref) => require('./coding-agents/apm').describeRef(ref),
   apmAction: (projectId, action) => agentSetup().apmAction(store.getProject(projectId), action),
   agentsTools: () => agentSetup().tools(),
+
+  // Git sources for skills: downloaded into the skills repository, deployed like own skills
+  skillSourceSave: (entry) => {
+    const { validSource } = require('./coding-agents/skills');
+    const url = String(entry.url || '').trim();
+    const name = String(entry.name || '').trim() || url.replace(/\.git$/, '').split(/[/:\\]/).filter(Boolean).pop() || 'source';
+    const src = { id: entry.id || crypto.randomUUID(), name, url, ref: String(entry.ref || '').trim(), path: String(entry.path || '').trim().replace(/^[\\/]+/, '') };
+    const err = validSource(src);
+    if (err) throw new Error(err);
+    const list = store.data.skillSources;
+    if (list.some((x) => x.id !== src.id && x.name.toLowerCase() === name.toLowerCase())) throw new Error('A source with this name already exists');
+    const i = list.findIndex((x) => x.id === src.id);
+    const prev = i >= 0 ? list[i] : null;
+    if (prev && (prev.url !== src.url || prev.ref !== src.ref || prev.name !== src.name)) skillsRepo().removeSource(prev); // download again
+    if (i >= 0) list[i] = { ...prev, ...src, lastSync: prev.url === src.url && prev.ref === src.ref && prev.name === src.name ? prev.lastSync : null };
+    else list.push(src);
+    store.save();
+    return src.id;
+  },
+  skillSourceDelete: (id) => {
+    const src = store.data.skillSources.find((x) => x.id === id);
+    if (src) skillsRepo().removeSource(src);
+    store.data.skillSources = store.data.skillSources.filter((x) => x.id !== id);
+    store.save();
+  },
+  skillSourceSync: async (id) => {
+    const src = store.data.skillSources.find((x) => x.id === id);
+    if (!src) throw new Error('unknown source');
+    try {
+      const r = await skillsRepo().syncSource(src);
+      Object.assign(src, { lastSync: Date.now(), commit: r.commit, error: null, skillCount: r.skills.length - r.conflicts.length, conflictCount: r.conflicts.length });
+      store.save();
+      audit.add({ source: 'app', action: 'skills.source-sync', detail: `${src.name}: ${r.commit}` });
+      return r;
+    } catch (e) {
+      Object.assign(src, { lastSync: Date.now(), error: e.message });
+      store.save();
+      throw e;
+    }
+  },
+  // Updates the Git sources of the project's selected skills (all sources if unsure), then deploys.
+  agentsUpdateSkillsAndDeploy: async (projectId) => {
+    const p = store.getProject(projectId);
+    const selected = new Set((p.agentSetup && p.agentSetup.skills) || []);
+    const used = new Set(skillsRepo().list().filter((s) => s.source && selected.has(s.name)).map((s) => s.source));
+    const sources = store.data.skillSources.filter((s) => used.has(s.name) || !s.lastSync);
+    const synced = [];
+    for (const src of sources) {
+      try { const r = await api.skillSourceSync(src.id); synced.push({ name: src.name, commit: r.commit, ok: true }); }
+      catch (e) { synced.push({ name: src.name, ok: false, error: e.message }); }
+    }
+    const report = await api.agentsDeploy(projectId);
+    report.sources = synced;
+    return report;
+  },
 
   // Skills repository
   skillsList: () => ({ dir: skillsRepo().dir, skills: skillsRepo().list() }),

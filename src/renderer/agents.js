@@ -66,13 +66,30 @@ async function fillLibrary(ctx, page) {
   page.append(mcpCard, skillsCard, apmCard);
 
   const { dir, skills } = await call('skillsList');
+  const sources = S.config.skillSources || [];
   clear(skillsBox);
   skillsBox.append(
-    h('p', { class: 'muted' }, 'Repository folder: ', h('code', null, dir), ' — one sub-folder per skill with a SKILL.md (Agent Skills format). It can be a git clone; pull it and press Update in the projects to deploy again.'),
+    h('div', { class: 'row', style: { margin: '6px 0' } }, h('b', null, 'Git sources'), h('span', { class: 'muted' }, 'Repositories the app downloads skills from; their skills are deployed like your own.'), h('div', { class: 'spacer' }),
+      h('button', { onclick: () => editSource(ctx, null, () => fillLibrary(ctx, page)) }, '+ Git source'),
+      sources.length ? h('button', { onclick: () => syncSources(ctx, sources, () => fillLibrary(ctx, page)) }, '↻ Update all') : null),
+    sources.length ? h('table', { class: 'list' },
+      h('tr', null, ['Source', 'Repository', 'State', ''].map((t) => h('th', null, t))),
+      sources.map((src) => h('tr', null,
+        h('td', null, h('b', null, src.name)),
+        h('td', { class: 'mono', style: { fontSize: '11px', wordBreak: 'break-all' } }, src.url + (src.ref ? ' #' + src.ref : '') + (src.path ? ' / ' + src.path : '')),
+        h('td', { class: src.error ? 'bad' : 'muted', style: { fontSize: '12px' } }, src.error ? src.error.split('\n')[0] : src.lastSync ? `${src.skillCount ?? '?'} skills${src.conflictCount ? ` · ${src.conflictCount} name conflict${src.conflictCount > 1 ? 's' : ''}` : ''} · ${src.commit || ''}` : 'not downloaded yet'),
+        h('td', null, h('div', { class: 'row' },
+          h('button', { title: 'Download or update', onclick: () => syncSources(ctx, [src], () => fillLibrary(ctx, page)) }, src.lastSync && !src.error ? 'Update' : 'Download'),
+          h('button', { class: 'icon', title: 'Edit', onclick: () => editSource(ctx, src, () => fillLibrary(ctx, page)) }, '✎'),
+          h('button', { class: 'icon danger', title: 'Remove', onclick: async () => {
+            if (await confirmDialog('Remove Git source', `Remove “${src.name}” and its downloaded skills? Projects remove them from their agents on the next deploy.`, 'Remove')) { await call('skillSourceDelete', src.id); await reload(ctx); fillLibrary(ctx, page); }
+          } }, '✕')))))) : h('p', { class: 'muted' }, 'No Git sources yet.'),
+    h('div', { style: { height: '10px' } }),
+    h('p', { class: 'muted' }, 'Skills folder: ', h('code', null, dir), ' — your own skills, one sub-folder per skill with a SKILL.md (Agent Skills format). Skills of Git sources are downloaded into its .sources folder. After changes, deploy again in the projects (or use “Update skills from Git and deploy”).'),
     skills.length ? h('table', { class: 'list' },
       h('tr', null, ['Skill', 'Description', 'Files'].map((t) => h('th', null, t))),
       skills.map((s) => h('tr', null,
-        h('td', null, h('b', null, s.name)),
+        h('td', null, h('b', null, s.name), s.source ? h('div', null, h('span', { class: 'tag' }, s.source)) : null),
         h('td', null, s.description || h('span', { class: 'muted' }, 'no description'), s.error ? h('div', { class: 'bad' }, s.error) : null),
         h('td', { class: 'muted' }, String((s.files || []).length))))) : h('p', { class: 'muted' }, 'No skills found in this folder.'));
 }
@@ -189,6 +206,43 @@ async function apmAction(ctx, p, action) {
   } finally { t && t.remove && t.remove(); }
 }
 
+function editSource(ctx, src, after) {
+  const url = h('input', { value: src ? src.url : '', placeholder: 'https://gitlab.example.com/team/skills.git', spellcheck: 'false' });
+  const ref = h('input', { value: src ? src.ref : '', placeholder: 'default branch' });
+  const sub = h('input', { value: src ? src.path : '', placeholder: 'whole repository' });
+  const name = h('input', { value: src ? src.name : '', placeholder: 'from the repository name' });
+  modal({
+    title: src ? 'Edit Git source' : 'New Git source for skills',
+    width: '720px',
+    body: h('div', { class: 'form' },
+      ...field('Repository', url, 'https or ssh URL (git@host:group/repo.git); a local repository folder works too'),
+      ...field('Branch / tag', ref, 'Optional; Update fetches the newest commit of it'),
+      ...field('Sub-folder', sub, 'Optional; only skills below this folder, e.g. skills'),
+      ...field('Name', name, 'Shown as the source of its skills'),
+      h('div', { class: 'hint' }, 'The app downloads the repository with your local git (your stored login is used) into the skills folder and lists every folder with a SKILL.md as a skill. Select them per project and deploy as usual.')),
+    okText: 'Save and download',
+    onOk: async () => {
+      const id = await ctx.call('skillSourceSave', { id: src && src.id, url: url.value, ref: ref.value, path: sub.value, name: name.value });
+      await reload(ctx);
+      await syncSources(ctx, (ctx.S.config.skillSources || []).filter((x) => x.id === id), after);
+    },
+  });
+}
+
+async function syncSources(ctx, sources, after) {
+  for (const src of sources) {
+    const t = toast(`Downloading skills from ${src.name}…`, { ms: 300000 });
+    try {
+      const r = await ctx.call('skillSourceSync', src.id);
+      toast(`${src.name}: ${r.skills.length - r.conflicts.length} skills (${r.commit})${r.conflicts.length ? ' · name conflicts: ' + r.conflicts.join(', ') : ''}`, { ms: 6000 });
+    } catch (e) {
+      toast(`${src.name}: ${e.message.split('\n')[0]}`, { error: true, ms: 10000 });
+    } finally { t && t.remove && t.remove(); }
+  }
+  await reload(ctx);
+  after && after();
+}
+
 function newSkill(ctx, after) {
   const name = h('input', { placeholder: 'e.g. code-review' });
   const desc = h('input', { placeholder: 'When should the agent use this skill?' });
@@ -213,7 +267,7 @@ export function projectSetupSection(ctx, p, agentsList, skillsList) {
   const mcpChecks = h('div', { class: 'checklist', style: { maxHeight: '150px' } }, lib.length ? lib.map((e) => h('label', null,
     h('input', { type: 'checkbox', 'data-k': e.id, checked: setup.mcp.includes(e.id) }), e.name, h('span', { class: 'muted' }, e.type === 'http' ? e.url : e.command))) : h('div', { class: 'muted' }, 'No MCP servers in the library yet (Library page).'));
   const skillChecks = h('div', { class: 'checklist', style: { maxHeight: '150px' } }, skillsList.length ? skillsList.map((s) => h('label', { title: s.description },
-    h('input', { type: 'checkbox', 'data-k': s.name, checked: setup.skills.includes(s.name) }), s.name, h('span', { class: 'muted' }, s.description.slice(0, 80)))) : h('div', { class: 'muted' }, 'No skills in the repository yet (Library page).'));
+    h('input', { type: 'checkbox', 'data-k': s.name, checked: setup.skills.includes(s.name), disabled: !!s.error }), s.name, s.source ? h('span', { class: 'tag' }, s.source) : null, h('span', { class: s.error ? 'bad' : 'muted' }, (s.error || s.description).slice(0, 80)))) : h('div', { class: 'muted' }, 'No skills in the repository yet (Library page).'));
   const apmLib = S.config.apmLibrary || [];
   const apmChecks = h('div', { class: 'checklist', style: { maxHeight: '150px' } }, apmLib.length ? apmLib.map((e) => h('label', { title: e.description },
     h('input', { type: 'checkbox', 'data-k': e.id, checked: (setup.apm || []).includes(e.id) }), h('span', { class: 'mono' }, e.ref), h('span', { class: 'muted' }, e.description.slice(0, 80)))) : h('div', { class: 'muted' }, 'No APM packages in the library yet (Library page).'));
@@ -250,6 +304,7 @@ export async function agentsMenu(ctx, e, p, activeSessionId) {
   const list = ctx.S.agentsList || (ctx.S.agentsList = await call('agentsList'));
   contextMenu(r.left, r.bottom + 2, [
     { label: 'Deploy MCP & skills (update)', action: () => deploy(ctx, p) },
+    { label: 'Update skills from Git and deploy', action: () => deploy(ctx, p, { updateSources: true }) },
     { label: 'Detect installed agents', action: () => detect(ctx, p) },
     { label: 'Configure…', action: () => ctx.editProject(p) },
     '-',
@@ -288,11 +343,11 @@ async function detect(ctx, p) {
   } catch (e) { toast(e.message, { error: true, ms: 8000 }); }
 }
 
-export async function deploy(ctx, p) {
-  const t = toast(`Deploying MCP servers and skills to ${p.name}…`, { ms: 120000 });
+export async function deploy(ctx, p, { updateSources = false } = {}) {
+  const t = toast(updateSources ? `Updating skills from Git and deploying to ${p.name}…` : `Deploying MCP servers and skills to ${p.name}…`, { ms: 900000 });
   let report;
   try {
-    report = await ctx.call('agentsDeploy', p.id);
+    report = await ctx.call(updateSources ? 'agentsUpdateSkillsAndDeploy' : 'agentsDeploy', p.id);
   } catch (e) {
     toast(e.message, { error: true, ms: 8000 });
     return;
@@ -306,6 +361,7 @@ function showReport(rep) {
   const body = h('div', null,
     h('p', { class: 'muted' }, `${rep.scope === 'project' ? 'Project folder ' + rep.dir : 'User scope'} · ${rep.target === 'powershell' ? 'Windows PowerShell' : 'Linux/macOS shell'} · ${fmtTime(rep.time)}`),
     rep.errors.map((e) => h('div', { class: 'bad', style: { whiteSpace: 'pre-wrap' } }, e)),
+    (rep.sources || []).length ? h('p', null, 'Skill sources: ', rep.sources.map((s) => h('span', { class: s.ok ? 'ok' : 'bad', title: s.error || '' }, `${s.name} ${s.ok ? '✓ ' + s.commit : '✗ ' + (s.error || '').split('\n')[0]}  `))) : null,
     installed.length ? null : h('p', { class: 'warn' }, 'No coding agent found on this machine. Install one with Agents ▾ → Install.'),
     h('table', { class: 'list' },
       h('tr', null, ['', 'Agent', 'MCP servers', 'Skills'].map((x) => h('th', null, x))),

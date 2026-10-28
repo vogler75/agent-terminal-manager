@@ -819,6 +819,51 @@ const cfgBase = () => {
     assert.ok(!fs.existsSync(path.join(agentWork, '.claude', 'skills', 'style-checker')), 'skill removed again');
   }, { skip: process.env.ATM_E2E_APM === '1' ? null : 'ATM_E2E_APM not set' });
 
+  await step('Skill sources: download skills from Git, deploy them, update from Git and deploy again', async () => {
+    // A local Git repository with two skills below "skills/" and one whose name is already taken.
+    const repo = path.join(dir, 'skill-source-repo');
+    const g = (...args) => { const r = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo, encoding: 'utf8' }); if (r.status !== 0) throw new Error(r.stderr); };
+    fs.mkdirSync(path.join(repo, 'skills', 'git-alpha'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'skills', 'git-beta', 'ref'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'skills', 'e2e-skill'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'skills', 'git-alpha', 'SKILL.md'), '---\nname: git-alpha\ndescription: Alpha from Git\n---\nversion 1\n');
+    fs.writeFileSync(path.join(repo, 'skills', 'git-beta', 'SKILL.md'), '---\nname: git-beta\ndescription: Beta from Git\n---\nbeta\n');
+    fs.writeFileSync(path.join(repo, 'skills', 'git-beta', 'ref', 'notes.md'), 'notes');
+    fs.writeFileSync(path.join(repo, 'skills', 'e2e-skill', 'SKILL.md'), '---\nname: e2e-skill\ndescription: duplicate\n---\n');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'not a skill');
+    g('init', '-q', '-b', 'main'); g('add', '.'); g('commit', '-qm', 'v1');
+
+    await page.click('#sidebar button:has-text("Library")');
+    await page.click('button:has-text("+ Git source")');
+    await page.locator('.modal input').nth(0).fill(repo);
+    await page.locator('.modal input').nth(2).fill('skills');
+    await page.locator('.modal input').nth(3).fill('team-skills');
+    await page.locator('.modal button.primary').click();
+    await page.waitForSelector('#library-page td:has-text("2 skills")', { timeout: 60000 });
+    await page.waitForSelector('#library-page tr:has(b:text("git-alpha")) .tag:text("team-skills")');
+    const { skills } = await page.evaluate(() => window.atm.call('skillsList'));
+    assert.match(skills.find((s) => s.source === 'team-skills' && s.name === 'e2e-skill').error, /already used by your skills/);
+    await shot('skill-sources');
+
+    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], apm: [], skills: ['git-alpha', 'git-beta'] }; });
+    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    assert.ok(rep.ok, JSON.stringify(rep.errors));
+    const claudeSkill = path.join(agentWork, '.claude', 'skills', 'git-alpha', 'SKILL.md');
+    const hasClaude = rep.agents.some((a) => a.id === 'claude' && a.installed);
+    if (hasClaude) {
+      assert.match(fs.readFileSync(claudeSkill, 'utf8'), /version 1/);
+      assert.strictEqual(fs.readFileSync(path.join(agentWork, '.claude', 'skills', 'git-beta', 'ref', 'notes.md'), 'utf8'), 'notes');
+    }
+    // New commit in the source; "Update skills from Git and deploy" brings it to the agents.
+    fs.writeFileSync(path.join(repo, 'skills', 'git-alpha', 'SKILL.md'), '---\nname: git-alpha\ndescription: Alpha from Git\n---\nversion 2\n');
+    g('commit', '-qam', 'v2');
+    const rep2 = await page.evaluate(() => window.atm.call('agentsUpdateSkillsAndDeploy', 'p-agents'));
+    assert.ok(rep2.sources.length === 1 && rep2.sources[0].ok && / v2$/.test(rep2.sources[0].commit), JSON.stringify(rep2.sources));
+    if (hasClaude) assert.match(fs.readFileSync(claudeSkill, 'utf8'), /version 2/);
+    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, skills: [] }; });
+    await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+  });
+
   await step('Agents: install command is typed into the terminal for the right shell', async () => {
     const r = await page.evaluate(() => window.atm.call('agentsList'));
     assert.ok(r.find((a) => a.id === 'claude').install.powershell.includes('install.ps1'));

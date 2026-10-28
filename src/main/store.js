@@ -88,6 +88,8 @@ function normalize(data) {
     mcpLibrary: d.mcpLibrary || [],
     // APM packages (references like owner/repo[/path][#ref]) that projects can install.
     apmLibrary: d.apmLibrary || [],
+    // Git repositories the app downloads skills from into the local skills repository.
+    skillSources: d.skillSources || [],
   };
 }
 
