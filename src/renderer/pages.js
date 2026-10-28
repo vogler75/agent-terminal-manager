@@ -26,6 +26,16 @@ function rowsEditor(items, cols) {
   };
 }
 
+// Session types selectable per project; ACP agents are stored as {kind: 'acp', acpAgent}.
+const SESSION_TYPES = [
+  ['terminal', 'Terminal'],
+  ['agent', 'OpenCode (server API)'],
+  ['acp:opencode', 'OpenCode via ACP'],
+  ['acp:copilot', 'GitHub Copilot via ACP'],
+];
+const sessionType = (o) => (o && o.kind === 'acp' ? `acp:${o.acpAgent || 'opencode'}` : (o && o.kind) || 'terminal');
+const fromSessionType = (v) => (String(v).startsWith('acp:') ? { kind: 'acp', acpAgent: v.slice(4) } : { kind: v || 'terminal', acpAgent: undefined });
+
 export async function editProject(ctx, p) {
   const { S, call } = ctx;
   const [agentsList, skillsInfo] = await Promise.all([call('agentsList'), call('skillsList').catch(() => ({ skills: [] }))]);
@@ -48,12 +58,17 @@ export async function editProject(ctx, p) {
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
   const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'e.g. claude (optional)' });
-  const dsKind = h('select', null, [['terminal', 'Terminal'], ['agent', 'Agent (OpenCode)']].map(([v, l]) => h('option', { value: v, selected: (p.defaultSession.kind || 'terminal') === v }, l)));
+  const dsKind = h('select', null, SESSION_TYPES.map(([v, l]) => h('option', { value: v, selected: sessionType(p.defaultSession) === v }, l)));
   const agentCmd = h('input', { value: p.agentCommand || 'opencode' });
-  const terms = rowsEditor(p.terminals, [{ key: 'name', placeholder: 'Name', small: true }, { key: 'command', placeholder: 'Start command (optional)' }, { key: 'kind', options: [['terminal', 'Terminal'], ['agent', 'Agent']] }]);
+  const terms = rowsEditor((p.terminals || []).map((t) => ({ ...t, kind: sessionType(t) })), [{ key: 'name', placeholder: 'Name', small: true }, { key: 'command', placeholder: 'Start command (optional)' }, { key: 'kind', options: SESSION_TYPES }]);
   const cmds = rowsEditor(p.commands, [{ key: 'name', placeholder: 'Name, e.g. Start agent', small: false }, { key: 'command', placeholder: 'Command, e.g. claude --continue' }]);
   const fwds = rowsEditor(p.forwards, [{ key: 'local', placeholder: 'local', small: true, type: 'number' }, { key: 'remote', placeholder: 'remote', small: true, type: 'number' }, { key: 'remoteHost', placeholder: 'Target host (default localhost)' }]);
 
+  // A default session name follows the chosen type until the user picks an own name.
+  const DEFAULT_NAMES = { terminal: 'shell', agent: 'agent', 'acp:opencode': 'opencode', 'acp:copilot': 'copilot' };
+  dsKind.addEventListener('change', () => {
+    if (Object.values(DEFAULT_NAMES).includes(dsName.value.trim())) dsName.value = DEFAULT_NAMES[dsKind.value] || dsName.value;
+  });
   const agentSection = projectSetupSection(ctx, p, agentsList, skillsInfo.skills);
   const sshOnly = [];
   const inlineOnly = [];
@@ -121,9 +136,9 @@ export async function editProject(ctx, p) {
         keepAliveCountMax: Number(keepMax.value) || 3,
         autoReconnect: auto.checked,
         thresholdSec: thr.value ? Number(thr.value) : null,
-        defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), kind: dsKind.value },
+        defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
         agentCommand: agentCmd.value.trim() || 'opencode',
-        terminals: terms.get().map((t) => ({ ...t, name: t.name || 'term' })),
+        terminals: terms.get().map((t) => ({ ...t, name: t.name || 'term', ...fromSessionType(t.kind) })),
         commands: cmds.get().filter((c) => c.name && c.command),
         forwards: fwds.get().filter((f) => f.local && f.remote),
         agentSetup: agentSection.get(),

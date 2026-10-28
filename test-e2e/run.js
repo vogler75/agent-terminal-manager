@@ -149,6 +149,20 @@ const cfgBase = () => {
     assert.ok(cfg);
   });
 
+  await step('P2 project editor: choose the agent type of the default session (ACP Copilot)', async () => {
+    await app.evaluate(() => globalThis.__atm.store.saveProject({ id: 'p-type', name: 'typen', type: 'local', tmux: false }));
+    await page.click('#sidebar .proj-name:text("typen")');
+    await page.click('#main .main-head button.icon[title="Edit project"]');
+    const typeSelect = page.locator('.modal select:has(option[value="acp:copilot"])').first();
+    await typeSelect.selectOption('acp:copilot');
+    await page.locator('.modal button.primary').click();
+    await waitFor(async () => { const d = await app.evaluate(() => globalThis.__atm.store.getProject('p-type').defaultSession); return d.kind === 'acp' && d.acpAgent === 'copilot' && d.name === 'copilot'; }, { msg: 'default session saved as Copilot via ACP' });
+    await page.click('#main .main-head button.icon[title="Edit project"]');
+    assert.strictEqual(await page.locator('.modal select:has(option[value="acp:copilot"])').first().inputValue(), 'acp:copilot', 'type preselected');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await app.evaluate(() => globalThis.__atm.store.deleteProject('p-type'));
+  });
+
   await step('P2 export / import JSON and no passwords stored', async () => {
     const text = await page.evaluate(() => window.atm.call('exportConfigText'));
     const data = JSON.parse(text);
