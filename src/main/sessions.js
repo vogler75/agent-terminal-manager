@@ -8,8 +8,26 @@ const { buildSpawn, buildTmuxKill } = require('./connect');
 
 let pty = null;
 function getPty() {
-  if (!pty) pty = require('node-pty');
+  if (!pty) {
+    ensureSpawnHelperExecutable();
+    pty = require('node-pty');
+  }
   return pty;
+}
+
+// node-pty's prebuilt spawn-helper (macOS) can lose its execute bit on npm install or packaging,
+// which makes every spawn fail with "posix_spawnp failed".
+function ensureSpawnHelperExecutable() {
+  if (process.platform === 'win32') return;
+  const fs = require('fs');
+  const path = require('path');
+  try {
+    const base = path.dirname(require.resolve('node-pty/package.json')).replace('app.asar', 'app.asar.unpacked');
+    for (const dir of ['prebuilds/' + process.platform + '-' + process.arch, 'build/Release']) {
+      const helper = path.join(base, dir, 'spawn-helper');
+      if (fs.existsSync(helper) && !(fs.statSync(helper).mode & 0o111)) fs.chmodSync(helper, 0o755);
+    }
+  } catch {}
 }
 
 const RAW_LIMIT = 512 * 1024;
