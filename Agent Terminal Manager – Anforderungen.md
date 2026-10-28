@@ -118,7 +118,7 @@ Eine plattformübergreifende Desktop-App (Windows und macOS), mit der mehrere pa
 
 Die Umsetzung läuft in neun Phasen (0 bis 8). Jede Phase ist abgeschlossen, wenn alle Kriterien auf Windows und macOS erfüllt sind.
 
-> **Stand 28.10.2026:** Alle Phasen sind umgesetzt. Auf Windows 11 durch `npm test` (13 Unit-Tests) und `npm run e2e` geprüft (38 E2E-Schritte, inkl. SSH mit tmux, WSL, OpenCode-Agent und Orchestrator). Installer und Portable-Exe gebaut, die gepackte App per `test-e2e/packaged.js` getestet. **Auf macOS noch nicht geprüft:** Der Code ist plattformneutral, und `.github/workflows/build.yml` baut und testet auf macOS. Der macOS-Lauf und ein Test auf einem frischen Rechner stehen aber noch aus.
+> **Stand 28.10.2026:** Alle Phasen sind umgesetzt. Auf Windows 11 durch `npm test` (13 Unit-Tests) und `npm run e2e` geprüft (38 E2E-Schritte, inkl. SSH mit tmux, WSL, OpenCode-Agent und Orchestrator). Installer und Portable-Exe gebaut, die gepackte App per `test-e2e/packaged.js` getestet. **macOS:** In GitHub Actions (`macos-15-intel`) laufen Unit-Tests und E2E-Tests erfolgreich (33 bestanden, 0 fehlgeschlagen, Lauf 40716139958); DMG und ZIP werden gebaut. Dafür musste ein macOS-Fehler behoben werden (node-pty `spawn-helper` ohne Ausführungsrecht). Auf beiden Plattformen läuft jede CI-Installation auf einem frischen Runner. SSH-, WSL- und OpenCode-Schritte wurden nur unter Windows getestet.
 
 ### Phase 0: Technik-Test (vor allem anderen)
 
