@@ -227,6 +227,8 @@ function agentMenu(e, p) {
     '-',
     { label: 'OpenCode via ACP', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'opencode', name: 'opencode', command: '' }) },
     { label: 'GitHub Copilot via ACP', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'copilot', name: 'copilot', command: '' }) },
+    ...(p.acpCommands && p.acpCommands.custom ? [{ label: `Other ACP agent: ${p.acpCommands.custom}`, action: () => openSession(p.id, { kind: 'acp', acpAgent: 'custom', name: 'acp-agent', command: '' }) }] : []),
+    { label: 'Configure agent commands…', action: () => pages.editProject(ctx, p) },
   ]);
 }
 

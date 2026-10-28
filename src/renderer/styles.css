@@ -218,3 +218,6 @@ table.list tr:hover td { background: var(--bg2); }
 .md-code { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; margin: 4px 0 8px; overflow-x: auto; white-space: pre; }
 .md-inline { font-family: var(--mono); font-size: 12px; background: var(--bg); border-radius: 3px; padding: 0 4px; }
 .msg.assistant { white-space: normal; }
+.status-select { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg3); }
+.status-select select { width: auto; padding: 1px 4px; font-size: 12px; background: var(--bg2); }
+.usage { font-size: 12px; color: var(--fg2); font-variant-numeric: tabular-nums; }

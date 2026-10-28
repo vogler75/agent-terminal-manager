@@ -129,20 +129,6 @@ const pi = jsonAgent({
   notes: 'On native Windows pi needs Git Bash for its bash tool.',
 });
 
-// --- Gemini CLI (enterprise; consumer users moved to agy)
-const gemini = jsonAgent({
-  id: 'gemini',
-  name: 'Gemini CLI',
-  bin: 'gemini',
-  homepage: 'https://github.com/google-gemini/gemini-cli',
-  install: { npm: 'npm install -g @google/gemini-cli' },
-  files: { project: proj('.gemini/settings.json'), user: home('.gemini/settings.json') },
-  skills: { project: proj('.gemini/skills'), user: home('.gemini/skills') },
-  key: 'mcpServers',
-  stdio: (s) => ({ command: s.command, args: s.args, env: nonEmpty(s.env) }),
-  http: (s) => ({ httpUrl: s.url, headers: nonEmpty(s.headers) }),
-});
-
 // --- Cursor CLI (binary "cursor-agent", newer installs also "agent")
 const cursor = jsonAgent({
   id: 'cursor',
@@ -186,6 +172,6 @@ const qwen = jsonAgent({
   http: (s) => ({ httpUrl: s.url, headers: nonEmpty(s.headers) }),
 });
 
-const registry = [claude, codex, opencode, agy, copilot, pi, gemini, cursor, amp, qwen];
+const registry = [claude, codex, opencode, agy, copilot, pi, cursor, amp, qwen];
 
 module.exports = { registry, byId: (id) => registry.find((a) => a.id === id) };

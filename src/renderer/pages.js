@@ -32,7 +32,17 @@ const SESSION_TYPES = [
   ['agent', 'OpenCode (server API)'],
   ['acp:opencode', 'OpenCode via ACP'],
   ['acp:copilot', 'GitHub Copilot via ACP'],
+  ['acp:custom', 'Other ACP agent (own command)'],
 ];
+
+// The "Agent command" field depends on the type: program for OpenCode server sessions, program
+// override for the built-in ACP agents, or the full command line of another ACP agent.
+const AGENT_COMMAND = {
+  agent: { label: 'OpenCode command', fallback: 'opencode', hint: (c) => `Started on the target as: ${c} serve` },
+  'acp:opencode': { label: 'OpenCode command', fallback: 'opencode', hint: (c) => `Started as: ${c} acp — leave as is to use opencode from the PATH` },
+  'acp:copilot': { label: 'Copilot command', fallback: 'copilot', hint: (c) => `Started as: ${c} --acp — leave as is to use copilot from the PATH` },
+  'acp:custom': { label: 'ACP command', fallback: '', hint: () => 'Full command line that starts the agent in ACP mode, e.g. my-agent --acp (program and arguments)', suggestions: ['opencode acp', 'copilot --acp'] },
+};
 const sessionType = (o) => (o && o.kind === 'acp' ? `acp:${o.acpAgent || 'opencode'}` : (o && o.kind) || 'terminal');
 const fromSessionType = (v) => (String(v).startsWith('acp:') ? { kind: 'acp', acpAgent: v.slice(4) } : { kind: v || 'terminal', acpAgent: undefined });
 
@@ -59,16 +69,44 @@ export async function editProject(ctx, p) {
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
   const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'e.g. claude (optional)' });
   const dsKind = h('select', null, SESSION_TYPES.map(([v, l]) => h('option', { value: v, selected: sessionType(p.defaultSession) === v }, l)));
-  const agentCmd = h('input', { value: p.agentCommand || 'opencode' });
+  // One input, one stored value per type (switching the type keeps what was typed for the other one).
+  const acpCmds = p.acpCommands || {};
+  const cmdValues = {
+    agent: p.agentCommand || 'opencode',
+    'acp:opencode': acpCmds.opencode || 'opencode',
+    'acp:copilot': acpCmds.copilot || 'copilot',
+    'acp:custom': acpCmds.custom || '',
+  };
+  const cmdList = h('datalist', { id: 'agent-cmd-suggestions' });
+  const agentCmd = h('input', { list: 'agent-cmd-suggestions' });
+  const agentCmdLabel = h('label', null, 'Agent command');
+  const agentCmdHint = h('div', { class: 'hint' });
+  let cmdType = null;
+  const syncAgentCmd = () => {
+    if (cmdType && AGENT_COMMAND[cmdType]) cmdValues[cmdType] = agentCmd.value.trim();
+    cmdType = dsKind.value;
+    const def = AGENT_COMMAND[cmdType];
+    [agentCmdLabel, agentCmd, agentCmdHint].forEach((e) => (e.style.display = def ? '' : 'none'));
+    if (!def) return;
+    agentCmdLabel.textContent = def.label;
+    agentCmd.value = cmdValues[cmdType] || def.fallback;
+    agentCmd.placeholder = def.fallback || 'command line';
+    clear(cmdList);
+    for (const sgt of def.suggestions || [def.fallback]) cmdList.appendChild(h('option', { value: sgt }));
+    agentCmdHint.textContent = def.hint(agentCmd.value || def.fallback || '…');
+  };
+  agentCmd.addEventListener('input', () => { const def = AGENT_COMMAND[cmdType]; if (def) agentCmdHint.textContent = def.hint(agentCmd.value || def.fallback || '…'); });
   const terms = rowsEditor((p.terminals || []).map((t) => ({ ...t, kind: sessionType(t) })), [{ key: 'name', placeholder: 'Name', small: true }, { key: 'command', placeholder: 'Start command (optional)' }, { key: 'kind', options: SESSION_TYPES }]);
   const cmds = rowsEditor(p.commands, [{ key: 'name', placeholder: 'Name, e.g. Start agent', small: false }, { key: 'command', placeholder: 'Command, e.g. claude --continue' }]);
   const fwds = rowsEditor(p.forwards, [{ key: 'local', placeholder: 'local', small: true, type: 'number' }, { key: 'remote', placeholder: 'remote', small: true, type: 'number' }, { key: 'remoteHost', placeholder: 'Target host (default localhost)' }]);
 
   // A default session name follows the chosen type until the user picks an own name.
-  const DEFAULT_NAMES = { terminal: 'shell', agent: 'agent', 'acp:opencode': 'opencode', 'acp:copilot': 'copilot' };
+  const DEFAULT_NAMES = { terminal: 'shell', agent: 'agent', 'acp:opencode': 'opencode', 'acp:copilot': 'copilot', 'acp:custom': 'acp-agent' };
   dsKind.addEventListener('change', () => {
     if (Object.values(DEFAULT_NAMES).includes(dsName.value.trim())) dsName.value = DEFAULT_NAMES[dsKind.value] || dsName.value;
+    syncAgentCmd();
   });
+  syncAgentCmd();
   const agentSection = projectSetupSection(ctx, p, agentsList, skillsInfo.skills);
   const sshOnly = [];
   const inlineOnly = [];
@@ -91,7 +129,7 @@ export async function editProject(ctx, p) {
     field('Name', dsName),
     field('Start command', dsCmd),
     field('Type', dsKind),
-    field('Agent command', agentCmd, 'Program for agent sessions on the target (OpenCode in server mode)'),
+    agentCmdLabel, h('div', null, agentCmd, cmdList), agentCmdHint,
     h('h3', { class: 'full' }, 'Terminals (“Start all”)'),
     h('div', { class: 'full' }, terms.el),
     h('h3', { class: 'full' }, 'Saved commands'),
@@ -119,6 +157,7 @@ export async function editProject(ctx, p) {
     } }, 'Delete')],
     onOk: async () => {
       if (!name.value.trim()) throw new Error('Name is missing');
+      if (dsKind.value === 'acp:custom' && !agentCmd.value.trim()) throw new Error('ACP command is missing (e.g. my-agent --acp)');
       if (type.value === 'ssh' && !hostSel.value && !host.value.trim()) throw new Error('Host is missing');
       const out = {
         ...p,
@@ -137,7 +176,18 @@ export async function editProject(ctx, p) {
         autoReconnect: auto.checked,
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
-        agentCommand: agentCmd.value.trim() || 'opencode',
+        ...(() => {
+          syncAgentCmd(); // store what is typed for the current type
+          const keep = (v, def) => (v && v !== def ? v : undefined);
+          return {
+            agentCommand: cmdValues.agent || 'opencode',
+            acpCommands: {
+              opencode: keep(cmdValues['acp:opencode'], 'opencode'),
+              copilot: keep(cmdValues['acp:copilot'], 'copilot'),
+              custom: cmdValues['acp:custom'] || undefined,
+            },
+          };
+        })(),
         terminals: terms.get().map((t) => ({ ...t, name: t.name || 'term', ...fromSessionType(t.kind) })),
         commands: cmds.get().filter((c) => c.name && c.command),
         forwards: fwds.get().filter((f) => f.local && f.remote),

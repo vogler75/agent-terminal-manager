@@ -355,7 +355,7 @@ class McpService extends EventEmitter {
       name: z.string().optional(),
       command: z.string().optional(),
       kind: z.enum(['terminal', 'agent', 'acp']).optional(),
-      acp_agent: z.enum(['opencode', 'copilot']).optional(),
+      acp_agent: z.enum(['opencode', 'copilot', 'custom']).optional().describe('"custom" uses the ACP command configured in the project'),
     }, async ({ project, name, command, kind, acp_agent }) => {
       this._require('allowOpenSession', 'Opening sessions');
       const p = this.store.findProject(project);

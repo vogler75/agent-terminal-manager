@@ -124,11 +124,22 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
     const ta = h('textarea', { placeholder: s.kind === 'acp'
       ? 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands)'
       : 'Prompt for the agent… (Enter to send, Shift+Enter for a new line, / for commands, !cmd for shell)' });
+    // The chat view is redrawn on status changes: keep the draft and the focus across redraws.
+    const drafts = S.chatDrafts || (S.chatDrafts = new Map());
+    ta.value = drafts.get(s.id) || '';
+    ta.addEventListener('input', () => drafts.set(s.id, ta.value));
+    ta.addEventListener('focus', () => { S.chatFocus = s.id; });
+    ta.addEventListener('blur', () => { setTimeout(() => { if (S.chatFocus === s.id && !document.activeElement?.closest?.('.chat-input')) S.chatFocus = null; }, 0); });
+    // A microtask runs right after this redraw, before the next key event, so no keystroke is lost.
+    if (S.chatFocus === s.id) queueMicrotask(() => { if (ta.isConnected) { ta.focus(); ta.selectionStart = ta.selectionEnd = ta.value.length; } });
     const slash = slashMenu(ctx, s.id, ta);
+    // After a redraw, reopen the command menu for a restored "/..." draft.
+    if (S.chatFocus === s.id && /^\/\S*$/.test(ta.value)) queueMicrotask(() => { if (ta.isConnected) ta.dispatchEvent(new Event('input')); });
     const sendIt = async () => {
       const text = ta.value.trim();
       if (!text) return;
       ta.value = '';
+      drafts.delete(s.id);
       slash.close();
       try {
         if (/^[/!]/.test(text)) await runSlash(ctx, s.id, text);
@@ -149,6 +160,8 @@ export function renderChat(ctx, box, s, { compact = false } = {}) {
 }
 
 export function fillStatus(ctx, el, s) {
+  // Live usage updates redraw this bar; do not close a dropdown the user has open.
+  if (document.activeElement && document.activeElement.tagName === 'SELECT' && el.contains(document.activeElement)) return;
   clear(el);
   const info = ctx.S.sessions.get(s.id) || s;
   // Element.append() would print null as text, so drop empty parts first.
@@ -157,6 +170,14 @@ export function fillStatus(ctx, el, s) {
     h('span', { title: info.agentSessionId ? `${info.kind === 'acp' ? 'ACP' : 'OpenCode'} session ${info.agentSessionId}${info.url ? ' at ' + info.url : ''}` : '' }, info.kind === 'acp' ? `${info.agentName || 'Agent'} · ACP` : 'OpenCode'),
     info.model ? h('button', { class: 'model-btn', title: 'Change the model of this session', onclick: () => pickModel(ctx, s.id) }, info.model + ' ▾')
       : info.status !== 'starting' && info.status !== 'error' ? h('span', { class: 'warn' }, '· no model — log in to a provider') : null,
+    // Agent settings published over ACP, e.g. Copilot's Mode (agent / plan / autopilot).
+    ...(info.agentOptions || []).map((o) => h('label', { class: 'status-select', title: o.description || o.name }, o.name,
+      h('select', { onchange: (e) => ctx.call('agentSetOption', s.id, o.id, e.target.value).catch((err) => toast(err.message, { error: true })) },
+        o.options.map((x) => h('option', { value: x.value, selected: x.value === o.current }, x.name))))),
+    info.kind === 'acp' ? h('label', { class: 'status-select', title: 'How permission requests of the agent are answered' }, 'Approvals',
+      h('select', { onchange: (e) => ctx.call('agentSetApproval', s.id, e.target.value) },
+        [['ask', 'Ask'], ['reads', 'Auto-approve reads'], ['all', 'Auto-approve all']].map(([v, l]) => h('option', { value: v, selected: (info.approval || 'ask') === v }, l)))) : null,
+    usageLabel(info.usage),
     h('span', { class: 'spacer' }),
     h('button', { title: info.kind === 'acp' ? `Open a terminal to log in to ${info.agentName || 'the agent'}` : 'Open a terminal with “opencode auth login” to connect a provider (API key or OAuth)', onclick: () => providerLogin(ctx, s.id) }, info.kind === 'acp' ? 'Login' : 'Provider login'),
     h('button', { class: 'icon', title: 'Refresh the model after logging in', onclick: () => ctx.call('agentRefreshModel', s.id) }, '↻'),
@@ -164,6 +185,18 @@ export function fillStatus(ctx, el, s) {
     // Full-width block: start errors can span several lines (server log excerpt).
     info.error ? h('div', { class: 'bad mono', style: { flexBasis: '100%', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '220px', overflow: 'auto' } }, info.error) : null,
   ].filter(Boolean));
+}
+
+// Token usage: context window use (live while the agent works) and the session total.
+const fmtTokens = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n));
+function usageLabel(u) {
+  if (!u || (!u.used && !u.totalTokens)) return null;
+  const parts = [];
+  if (u.used) parts.push(`context ${fmtTokens(u.used)}${u.size ? ' / ' + fmtTokens(u.size) + ` (${Math.round((u.used / u.size) * 100)}%)` : ''}`);
+  if (u.totalTokens) parts.push(`${fmtTokens(u.totalTokens)} tokens`);
+  if (u.cost && typeof u.cost.amount === 'number') parts.push(`${u.cost.currency === 'USD' ? '$' : (u.cost.currency || '') + ' '}${u.cost.amount.toFixed(u.cost.amount < 1 ? 3 : 2)}`);
+  const title = `Context window: ${u.used || 0} of ${u.size || '?'} tokens\nThis session: ${u.inputTokens || 0} input + ${u.outputTokens || 0} output = ${u.totalTokens || 0} tokens in ${u.turns || 0} turn(s)`;
+  return h('span', { class: 'usage', title }, '· ' + parts.join(' · '));
 }
 
 async function providerLogin(ctx, sessionId) {

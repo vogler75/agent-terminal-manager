@@ -56,7 +56,8 @@ test('agy uses serverUrl, Copilot adds tools, Amp uses a literal dotted key', ()
   const amp = j(byId('amp').applyMcp('{"amp.notifications.enabled":true}', [stdio], []));
   assert.ok(amp['amp.mcpServers'].gh);
   assert.strictEqual(amp['amp.notifications.enabled'], true);
-  assert.deepStrictEqual(j(byId('gemini').applyMcp(null, [http], [])).mcpServers.docs, { httpUrl: 'https://x.dev/mcp', headers: { Authorization: 'Bearer t' } });
+  assert.strictEqual(byId('gemini'), undefined, 'Gemini CLI is no longer offered (replaced by agy)');
+  assert.deepStrictEqual(j(byId('qwen').applyMcp(null, [http], [])).mcpServers.docs, { httpUrl: 'https://x.dev/mcp', headers: { Authorization: 'Bearer t' } });
 });
 
 test('removing a deselected managed server keeps user servers', () => {

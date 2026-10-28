@@ -110,7 +110,7 @@ Access from outside (Claude app, web, voice mode): directly over the internet be
 
 ## Coding agents: install, MCP servers and skills
 
-**Agents ▾** in the project header installs coding agents and deploys MCP servers and skills to them. Supported: Claude Code, Codex CLI, OpenCode, Antigravity CLI (agy), GitHub Copilot CLI, pi, Gemini CLI, Cursor CLI, Amp and Qwen Code.
+**Agents ▾** in the project header installs coding agents and deploys MCP servers and skills to them. Supported: Claude Code, Codex CLI, OpenCode, Antigravity CLI (agy), GitHub Copilot CLI, pi, Cursor CLI, Amp and Qwen Code.
 
 - **Install** types the agent's official install command into the active terminal (PowerShell variant for local Windows projects, shell variant for macOS/Linux, SSH and WSL), so you see the output and can answer prompts.
 - **Library** (sidebar): MCP servers (stdio command or HTTP URL; env vars and headers are stored encrypted with the OS keychain) and a skills repository folder with one sub-folder per skill (`<name>/SKILL.md` + files). The folder can be a git clone.

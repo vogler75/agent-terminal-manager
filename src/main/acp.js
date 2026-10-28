@@ -16,6 +16,8 @@ const IS_WIN = process.platform === 'win32';
 const ACP_AGENTS = {
   opencode: { name: 'OpenCode', bin: 'opencode', args: ['acp'], login: ['auth', 'login'] },
   copilot: { name: 'GitHub Copilot', bin: 'copilot', args: ['--acp'], login: ['login'] },
+  // Any other ACP agent: the project's acpCommands.custom is the full command line.
+  custom: { name: 'Other ACP agent', bin: '', args: [], login: null },
 };
 
 const BUILTINS = [
@@ -25,6 +27,15 @@ const BUILTINS = [
   { name: 'login', description: 'Log in to the agent (opens a terminal)' },
   { name: 'help', description: 'Show available commands' },
 ];
+
+// Splits a command line into program and arguments ("quoted parts" stay together).
+function splitCommand(line) {
+  const out = [];
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(line))) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
 
 class AcpConnection extends EventEmitter {
   constructor(proc) {
@@ -115,11 +126,16 @@ class AcpSession extends BaseSession {
     this.configOptions = [];
     this.models = null; // {availableModels, currentModelId} (Copilot style)
     this.permission = null; // pending permission request shown in the UI
+    this.approval = ['ask', 'reads', 'all'].includes(opts.approval) ? opts.approval : 'ask';
     this.queue = Promise.resolve();
     this.start();
   }
 
-  get agentDef() { return ACP_AGENTS[this.acpAgent]; }
+  get agentDef() {
+    if (this.acpAgent !== 'custom') return ACP_AGENTS[this.acpAgent];
+    const [bin, ...args] = splitCommand((this.project.acpCommands || {}).custom || '');
+    return { name: bin ? bin.split(/[\\/]/).pop().replace(/\.(exe|cmd|bat)$/i, '') : 'ACP agent', bin: bin || '', args, login: null, custom: true };
+  }
 
   _log(line) {
     this.log.push(line);
@@ -132,7 +148,8 @@ class AcpSession extends BaseSession {
     const project = this.project;
     const host = project.hostId ? this.mgr.store.getHost(project.hostId) : null;
     const def = this.agentDef;
-    const cmd = project.acpCommands && project.acpCommands[this.acpAgent] ? project.acpCommands[this.acpAgent] : def.bin;
+    const cmd = def.custom ? def.bin : (project.acpCommands && project.acpCommands[this.acpAgent]) || def.bin;
+    if (!cmd) throw new Error('No ACP command configured. Set it in the project settings (type "Other ACP agent").');
     const dir = projectDir(project, host);
 
     if (project.type === 'local') {
@@ -218,6 +235,7 @@ class AcpSession extends BaseSession {
   _startError(kind, extra) {
     const where = this.project.type === 'wsl' ? 'in WSL' : 'on the remote host';
     if (kind === 'windows') return `Only the Windows ${this.agentDef.name} was found (${extra}). Install the Linux version inside WSL (Agents ▾ → Install).`;
+    if (this.agentDef.custom) return `"${this.agentDef.bin}" was not found ${where}. Install it there or fix the ACP command in the project settings.`;
     return `"${this.agentDef.bin}" was not found ${where}. Install it with Agents ▾ → Install ${this.agentDef.name === 'GitHub Copilot' ? 'GitHub Copilot CLI' : this.agentDef.name}.`;
   }
 
@@ -268,6 +286,50 @@ class AcpSession extends BaseSession {
   _applySessionInfo(r) {
     if (r.configOptions) this.configOptions = r.configOptions;
     if (r.models) this.models = r.models;
+    if (r.modes) this.modes = r.modes; // {availableModes: [{id, name}], currentModeId}
+  }
+
+  // Agent settings other than the model (e.g. Copilot "Mode": agent / plan / autopilot), from
+  // config options and session modes. Shown as dropdowns in the UI.
+  agentOptions() {
+    const out = (this.configOptions || [])
+      .filter((o) => o.type === 'select' && o !== this._modelOption())
+      .map((o) => ({ id: 'config:' + o.id, name: o.name || o.id, description: o.description || '', current: o.currentValue, options: (o.options || []).map((x) => ({ value: x.value, name: x.name || x.value })) }));
+    if (this.modes && (this.modes.availableModes || []).length && !out.some((o) => /mode/i.test(o.name))) {
+      out.push({ id: 'mode', name: 'Mode', description: '', current: this.modes.currentModeId, options: this.modes.availableModes.map((m) => ({ value: m.id, name: m.name || m.id })) });
+    }
+    return out;
+  }
+
+  async setAgentOption(id, value) {
+    if (!this.conn || !this.acpSessionId) throw new Error(`Agent ${this.name} is not connected`);
+    if (id === 'mode') {
+      await this.conn.request('session/set_mode', { sessionId: this.acpSessionId, modeId: value }, { timeout: 30000 });
+      if (this.modes) this.modes.currentModeId = value;
+    } else {
+      const configId = id.replace(/^config:/, '');
+      const r = await this.conn.request('session/set_config_option', { sessionId: this.acpSessionId, configId, value }, { timeout: 30000 });
+      if (r && r.configOptions) this.configOptions = r.configOptions;
+      else { const o = this.configOptions.find((x) => x.id === configId); if (o) o.currentValue = value; }
+    }
+    this._log(`${id} set to ${value}`);
+    this.mgr.emit('updated', this);
+  }
+
+  // Approval policy for permission requests: 'ask' (default), 'reads' (read-only tools are approved
+  // automatically) or 'all' (everything is approved). Every automatic answer is shown in the chat.
+  setApproval(policy) {
+    this.approval = ['ask', 'reads', 'all'].includes(policy) ? policy : 'ask';
+    this.mgr.persistOpen(this.projectId);
+    this.mgr.emit('updated', this);
+    if (this.permission && this._autoAnswer(this.permission.kind)) this.answerPermission(this._autoAnswer(this.permission.kind));
+  }
+
+  _autoAnswer(kind, options = this.permission && this.permission.options) {
+    const readOnly = ['read', 'search', 'fetch', 'think'].includes(kind);
+    if (!(this.approval === 'all' || (this.approval === 'reads' && readOnly))) return null;
+    const pick = (options || []).find((o) => o.kind === 'allow_once') || (options || []).find((o) => /allow/.test(o.kind));
+    return pick ? pick.id : null;
   }
 
   _fail(message) {
@@ -292,7 +354,12 @@ class AcpSession extends BaseSession {
       case 'available_commands_update': this.commands = u.availableCommands || []; break;
       case 'config_option_update': this.configOptions = u.configOptions || this.configOptions; this._updateModelLabel(); break;
       case 'current_model_update': if (this.models) this.models.currentModelId = u.modelId || u.currentModelId; this._updateModelLabel(); break;
-      case 'usage_update': this.usage = { used: u.used, size: u.size }; break;
+      case 'current_mode_update': if (this.modes) this.modes.currentModeId = u.currentModeId || u.modeId; this.mgr.emit('updated', this); break;
+      case 'usage_update':
+        // Context usage, sent while the agent works: shown live in the status bar.
+        this.usage = { ...(this.usage || {}), used: u.used, size: u.size, cost: u.cost || (this.usage && this.usage.cost) };
+        this._emitUsage();
+        break;
       default: break;
     }
   }
@@ -313,6 +380,7 @@ class AcpSession extends BaseSession {
   }
 
   _toolCall(u) {
+    if (u.kind) (this._toolKinds || (this._toolKinds = new Map())).set(u.toolCallId, u.kind);
     const m = this._current('assistant');
     m.tools.push({ id: u.toolCallId, name: u.title || u.kind || 'tool', status: u.status || 'pending', input: u.rawInput, result: '' });
     this._emitMessages();
@@ -339,6 +407,13 @@ class AcpSession extends BaseSession {
     this._emitMessages();
   }
 
+  // Usage changes often while the agent works; tell the UI at most every 300 ms.
+  _emitUsage(now) {
+    if (now) { clearTimeout(this._usageTimer); this._usageTimer = null; this.mgr.emit('updated', this); return; }
+    if (this._usageTimer) return;
+    this._usageTimer = setTimeout(() => { this._usageTimer = null; this.mgr.emit('updated', this); }, 300);
+  }
+
   _emitMessages(now) {
     clearTimeout(this._emitTimer);
     const fire = () => this.mgr.emit('agent-messages', this, this.messages.map((m) => ({ ...m, tools: (m.tools || []).map((t) => ({ ...t })) })));
@@ -347,12 +422,26 @@ class AcpSession extends BaseSession {
 
   // ---------- permissions ----------
   _askPermission(p) {
+    const tc = p.toolCall || {};
+    const options = (p.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind }));
+    // The tool kind (read, edit, execute, ...) comes with the request or with the earlier tool_call update.
+    const kind = tc.kind || (this._toolKinds && this._toolKinds.get(tc.toolCallId)) || 'other';
+    const title = tc.title || tc.kind || 'Tool call';
+    const auto = this._autoAnswer(kind, options);
+    if (auto) {
+      const opt = options.find((o) => o.id === auto);
+      this.messages.push({ id: 'a' + Date.now(), role: 'system', text: `Auto-approved (${this.approval === 'all' ? 'all' : 'read-only'}): ${title} → ${opt ? opt.name : auto}`, time: Date.now(), done: true });
+      this._emitMessages(true);
+      this._log(`auto-approved ${kind}: ${title}`);
+      return Promise.resolve({ outcome: { outcome: 'selected', optionId: auto } });
+    }
     return new Promise((resolve) => {
       const req = {
         id: 'perm' + Date.now(),
-        title: (p.toolCall && (p.toolCall.title || p.toolCall.kind)) || 'Tool call',
-        input: p.toolCall && p.toolCall.rawInput,
-        options: (p.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })),
+        title,
+        kind,
+        input: tc.rawInput,
+        options,
         resolve,
       };
       this.permission = req;
@@ -401,6 +490,18 @@ class AcpSession extends BaseSession {
       .then((r) => {
         const cur = this.messages[this.messages.length - 1];
         if (cur && !cur.done) cur.done = true;
+        if (r && r.usage) {
+          // Token counts of the finished turn, summed up for the session.
+          const t = this.usage || {};
+          this.usage = {
+            ...t,
+            inputTokens: (t.inputTokens || 0) + (r.usage.inputTokens || 0),
+            outputTokens: (t.outputTokens || 0) + (r.usage.outputTokens || 0),
+            totalTokens: (t.totalTokens || 0) + (r.usage.totalTokens || ((r.usage.inputTokens || 0) + (r.usage.outputTokens || 0))),
+            turns: (t.turns || 0) + 1,
+          };
+          this._emitUsage(true);
+        }
         if (r && r.stopReason && r.stopReason !== 'end_turn') this.messages.push({ id: 's' + Date.now(), role: 'system', text: `Stopped: ${r.stopReason}`, time: Date.now(), done: true });
         this._emitMessages(true);
         this.setStatus('waiting', r && r.stopReason);
@@ -456,6 +557,7 @@ class AcpSession extends BaseSession {
       const r = await this.conn.request('session/new', { cwd: this._cwdForAgent(), mcpServers: [] }, { timeout: 60000 });
       this.acpSessionId = r.sessionId;
       this.messages = [];
+      this.usage = null;
       this._applySessionInfo(r);
       await this._applyChosenModel();
       this.mgr.persistOpen(this.projectId);
@@ -534,6 +636,7 @@ class AcpSession extends BaseSession {
 
   loginCommand() {
     const def = this.agentDef;
+    if (!def.login) throw new Error(`No login command is known for ${def.name}; log in from a terminal.`);
     const p = this.project;
     let bin = p.acpCommands && p.acpCommands[this.acpAgent] ? p.acpCommands[this.acpAgent] : def.bin;
     if (p.type === 'local' && this.acpAgent === 'opencode' && bin === 'opencode') bin = findOpencode(this.mgr.store.settings.opencodePath) || bin;
@@ -550,11 +653,12 @@ class AcpSession extends BaseSession {
     return {
       ...super.info(), acpAgent: this.acpAgent, agentName: this.agentDef.name, agentSessionId: this.acpSessionId,
       model: this.model || '', permission: this.permissionInfo(), usage: this.usage || null,
+      approval: this.approval || 'ask', agentOptions: this.agentOptions(),
     };
   }
 
   persistExtra() {
-    return { acpAgent: this.acpAgent, acpSessionId: this.acpSessionId, model: this.chosenModel || null };
+    return { acpAgent: this.acpAgent, acpSessionId: this.acpSessionId, model: this.chosenModel || null, approval: this.approval || 'ask' };
   }
 
   close() {
@@ -571,4 +675,4 @@ class AcpSession extends BaseSession {
   }
 }
 
-module.exports = { AcpSession, AcpConnection, ACP_AGENTS };
+module.exports = { AcpSession, AcpConnection, ACP_AGENTS, splitCommand };

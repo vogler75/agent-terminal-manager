@@ -181,6 +181,8 @@ const api = {
   agentInterrupt: (id) => { const s = sessions.get(id); return s && s.interrupt ? s.interrupt() : null; },
   agentRefreshModel: (id) => { const s = sessions.get(id); return s && s.refreshModel ? s.refreshModel() : null; },
   acpAgents: () => Object.entries(ACP_AGENTS).map(([id, a]) => ({ id, name: a.name })),
+  agentSetApproval: (id, policy) => { const s = sessions.get(id); if (!s || !s.setApproval) throw new Error('not an ACP session'); return s.setApproval(policy); },
+  agentSetOption: (id, optionId, value) => { const s = sessions.get(id); if (!s || !s.setAgentOption) throw new Error('not an ACP session'); return s.setAgentOption(optionId, value); },
   agentPermission: (id, optionId) => { const s = sessions.get(id); if (!s || !s.answerPermission) throw new Error('not an ACP session'); return s.answerPermission(optionId); },
   agentSlashCommands: (id) => { const s = sessions.get(id); if (!s || !s.slashCommands) throw new Error('not an agent session'); return s.slashCommands(); },
   agentRunSlash: (id, text) => { const s = sessions.get(id); if (!s || !s.runSlash) throw new Error('not an agent session'); return s.runSlash(text); },
