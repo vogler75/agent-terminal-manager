@@ -520,6 +520,7 @@ function createWindow() {
     minHeight: 500,
     backgroundColor: '#14161b',
     title: 'TermClaw',
+    icon: path.join(__dirname, 'icon.png'), // packaged Windows/macOS builds take the exe/app icon from build/
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

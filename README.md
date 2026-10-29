@@ -198,6 +198,12 @@ Screenshots for this README are taken from the real app with a demo setup:
 npm run build:renderer && node scripts/screenshots/take.js
 ```
 
+The app icon is drawn in `build/icon.svg`; after changing it, render `build/icon.ico` (Windows), `build/icon.png` (macOS) and `src/main/icon.png` (window icon) with:
+
+```bash
+npx electron scripts/make-icon.js
+```
+
 Stack: Electron, xterm.js, node-pty, `@modelcontextprotocol/sdk`, OpenCode (server API), Agent Client Protocol.
 
 ### Versions and releases

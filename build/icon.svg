@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2d3446"/>
+      <stop offset="1" stop-color="#14171f"/>
+    </linearGradient>
+    <linearGradient id="claw" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffbf47"/>
+      <stop offset="1" stop-color="#ff5a36"/>
+    </linearGradient>
+  </defs>
+  <!-- fills the frame: taskbar icons are shown at 24-32 px -->
+  <rect x="6" y="6" width="244" height="244" rx="54" fill="url(#bg)"/>
+  <rect x="7.5" y="7.5" width="241" height="241" rx="52.5" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3"/>
+  <!-- prompt -->
+  <path d="M50 84 L104 128 L50 172" fill="none" stroke="#5eead4" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- claw marks -->
+  <path d="M150 48 C174 98 164 166 124 210 C134 160 138 104 150 48 Z" fill="url(#claw)"/>
+  <path d="M184 40 C208 94 198 168 156 216 C166 164 171 102 184 40 Z" fill="url(#claw)"/>
+  <path d="M216 52 C238 100 230 162 192 206 C201 158 205 106 216 52 Z" fill="url(#claw)"/>
+</svg>
