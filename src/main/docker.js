@@ -256,13 +256,20 @@ class ProjectDocker {
       this.snap = { ...this.snap, ok: true, error: null, loading: false, containers, updatedAt: Date.now() };
       this.mgr.emit('update', this.projectId, this.snap);
       // system df can take seconds (it measures every volume): runs beside the 3-second rounds.
-      if ((forceSlow || Date.now() - this.lastSlow > SLOW_MS) && !this.slowBusy) {
-        this.lastSlow = Date.now();
-        this.slowBusy = true;
-        this._slow(c)
-          .then(() => this.mgr.emit('update', this.projectId, this.snap))
-          .catch(() => {})
-          .finally(() => { this.slowBusy = false; });
+      if (forceSlow || Date.now() - this.lastSlow > SLOW_MS) {
+        if (this.slowBusy) {
+          if (forceSlow) this.slowAgain = true; // requested while one runs: run again right after it
+        } else {
+          this.lastSlow = Date.now();
+          this.slowBusy = true;
+          this._slow(c)
+            .then(() => this.mgr.emit('update', this.projectId, this.snap))
+            .catch(() => {})
+            .finally(() => {
+              this.slowBusy = false;
+              if (this.slowAgain) { this.slowAgain = false; this.lastSlow = 0; }
+            });
+        }
       }
     } catch (e) {
       this.snap = { ...this.snap, ok: false, loading: false, error: e.message, updatedAt: Date.now() };
@@ -335,11 +342,59 @@ class ProjectDocker {
     });
   }
 
-  async action(containerId, action) {
-    const paths = { start: 'start', stop: 'stop?t=10', restart: 'restart?t=10' };
-    if (!paths[action]) throw new Error('Unknown action ' + action);
-    await this._client().request('POST', `/containers/${encodeURIComponent(containerId)}/${paths[action]}`, { timeout: 60000 });
-    setTimeout(() => { if (this.timer) this.tick(); }, 300); // only while the Docker tab is open
+  // One operation on a container, image or volume. item: {id, name, tags} (tags for images).
+  async operate(kind, action, item, opts = {}) {
+    const c = this._client();
+    const id = encodeURIComponent(item.id);
+    const flag = (b) => (b ? 1 : 0);
+    if (kind === 'container') {
+      const post = { start: 'start', stop: 'stop?t=10', restart: 'restart?t=10', pause: 'pause', unpause: 'unpause', kill: 'kill' };
+      if (post[action]) return c.request('POST', `/containers/${id}/${post[action]}`, { timeout: 60000 });
+      if (action === 'remove') return c.request('DELETE', `/containers/${id}?force=${flag(opts.force)}&v=${flag(opts.volumes)}`, { timeout: 60000 });
+    }
+    if (kind === 'image' && action === 'remove') {
+      // An image with several tags can be removed by ID only with force; removing each tag removes it as well.
+      if (!opts.force && item.tags && item.tags.length > 1) {
+        for (const t of item.tags) await c.request('DELETE', `/images/${encodeURIComponent(t)}`, { timeout: 120000 });
+        return null;
+      }
+      return c.request('DELETE', `/images/${id}?force=${flag(opts.force)}`, { timeout: 120000 });
+    }
+    if (kind === 'volume' && action === 'remove') return c.request('DELETE', `/volumes/${id}?force=${flag(opts.force)}`, { timeout: 60000 });
+    throw new Error(`Unknown action: ${action} ${kind}`);
+  }
+
+  // The same operation on several items (three at a time); one failure does not stop the others.
+  async bulk(kind, action, items, opts = {}) {
+    const results = new Array(items.length);
+    let i = 0;
+    const worker = async () => {
+      while (i < items.length) {
+        const k = i++;
+        try { await this.operate(kind, action, items[k], opts); results[k] = { id: items[k].id, name: items[k].name, ok: true }; } catch (e) { results[k] = { id: items[k].id, name: items[k].name, ok: false, error: e.message }; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, worker));
+    this._refreshSoon(kind !== 'container' || action === 'remove'); // removals change disk usage
+    return results;
+  }
+
+  // Remove what is not used: stopped containers, unused images (all, or only untagged), unused volumes.
+  async prune(kind, { all = false } = {}) {
+    const c = this._client();
+    let r;
+    if (kind === 'container') r = await c.request('POST', '/containers/prune', { timeout: 300000 });
+    else if (kind === 'image') r = await c.request('POST', `/images/prune?filters=${encodeURIComponent(JSON.stringify({ dangling: [all ? 'false' : 'true'] }))}`, { timeout: 300000 });
+    else if (kind === 'volume') r = await c.request('POST', `/volumes/prune${all ? `?filters=${encodeURIComponent(JSON.stringify({ all: ['true'] }))}` : ''}`, { timeout: 300000 });
+    else throw new Error('Unknown kind ' + kind);
+    this._refreshSoon(true);
+    const list = r.ContainersDeleted || r.VolumesDeleted || (r.ImagesDeleted || []).filter((x) => x.Deleted) || [];
+    return { count: (list || []).length, space: r.SpaceReclaimed || 0 };
+  }
+
+  // Only while the Docker tab is open; slow = also disk usage, images and volumes.
+  _refreshSoon(slow) {
+    setTimeout(() => { if (this.timer) this.tick(slow); }, 300);
   }
 
   async logs(containerId, { tail = 500, follow = true, timestamps = false } = {}, onText, onEnd) {
@@ -383,7 +438,8 @@ class DockerManager extends EventEmitter {
   watch(projectId) { const d = this._get(projectId); d.watch(); return d.snap; }
   unwatch(projectId) { const d = this.projects.get(projectId); if (d) d.unwatch(); }
   refresh(projectId) { return this._get(projectId).tick(true); }
-  action(projectId, containerId, action) { return this._get(projectId).action(containerId, action); }
+  bulk(projectId, kind, action, items, opts) { return this._get(projectId).bulk(kind, action, items, opts); }
+  prune(projectId, kind, opts) { return this._get(projectId).prune(kind, opts); }
 
   async logs(projectId, containerId, opts) {
     const id = `log${++this.seq}`;
@@ -418,4 +474,4 @@ function execCommand(project, container) {
   return `${cli} exec -it ${container} sh -c "if command -v bash >/dev/null; then exec bash; else exec sh; fi"`;
 }
 
-module.exports = { DockerManager, DockerClient, dialSpec, stdioSocket, FrameDecoder, cpuPercent, memUsage, parseHostStats, containerInfo, execCommand };
+module.exports = { DockerManager, ProjectDocker, DockerClient, dialSpec, stdioSocket, FrameDecoder, cpuPercent, memUsage, parseHostStats, containerInfo, execCommand };

@@ -1,7 +1,8 @@
 // Docker tab of a project: dashboard (containers, CPU, memory, disk), container list with
-// start/stop/restart, logs and a shell, plus images and volumes. Data comes from the main process,
+// start/stop/restart/pause/kill/remove (also for a selection), logs and a shell, plus images and
+// volumes with removal and cleanup. Data comes from the main process,
 // which polls the Docker Engine API while this tab is visible.
-import { h, clear, toast, modal, timeAgo } from './ui.js';
+import { h, clear, toast, modal, timeAgo, contextMenu } from './ui.js';
 import { fmtSize } from './files.js';
 
 const call = (m, ...a) => window.termclaw.call(m, ...a);
@@ -13,7 +14,12 @@ const view = { sub: 'containers', filter: '', stopped: true }; // UI choices, ke
 let mounted = null; // { ctx, projectId, root }
 let pointerDown = false;
 let pendingDraw = false;
-const busy = new Map(); // containerId -> action in progress
+const busy = new Map(); // container / image id or volume name -> action in progress
+const sel = { containers: new Set(), images: new Set(), volumes: new Set() }; // selection per list
+let lastClick = { set: null, index: -1 }; // for Shift+click ranges
+let selProject = null;
+const gone = new Map(); // removed id -> time; hidden until a newer list arrives
+const shown = (id, listAt) => !(gone.get(id) > listAt);
 
 const pct = (v) => (v == null ? '–' : v < 10 ? v.toFixed(1) + '%' : Math.round(v) + '%');
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
@@ -71,6 +77,7 @@ const level = (ratio) => (ratio > 0.9 ? 'bad' : ratio > 0.75 ? 'warn' : '');
 export function mount(ctx, el, projectId) {
   if (mounted && mounted.projectId !== projectId) call('dockerUnwatch', mounted.projectId);
   const watching = mounted && mounted.projectId === projectId;
+  if (selProject !== projectId) { Object.values(sel).forEach((x) => x.clear()); selProject = projectId; }
   mounted = { ctx, projectId, root: h('div', { class: 'docker' }) };
   mounted.root.addEventListener('pointerdown', () => { pointerDown = true; });
   el.appendChild(mounted.root);
@@ -168,6 +175,9 @@ function cards(snap, projectId) {
 function tableArea(ctx, p, snap) {
   const df = snap.df && !snap.df.error ? snap.df : null;
   const counts = { containers: snap.containers.length, images: df ? df.images.length : '…', volumes: df ? df.volumes.length : '…' };
+  // Forget selected entries that are gone.
+  prune(sel.containers, snap.containers.map((c) => c.id));
+  if (df) { prune(sel.images, df.images.map((im) => im.id)); prune(sel.volumes, df.volumes.map((v) => v.name)); }
   const filter = h('input', { class: 'dk-filter', placeholder: 'Filter', value: view.filter, oninput: (e) => { view.filter = e.target.value; draw(); } });
   const subBtn = (k, label) => h('button', { class: view.sub === k ? 'active' : '', onclick: () => { view.sub = k; draw(); } }, `${label} (${counts[k]})`);
   const bar = h('div', { class: 'dk-tabs' },
@@ -178,27 +188,94 @@ function tableArea(ctx, p, snap) {
   const q = view.filter.trim().toLowerCase();
   const match = (...xs) => !q || xs.some((x) => String(x || '').toLowerCase().includes(q));
   let table;
-  if (view.sub === 'images') table = imagesTable(df, snap, match);
-  else if (view.sub === 'volumes') table = volumesTable(df, snap, match);
+  if (view.sub === 'images') table = imagesTable(p, df, snap, match);
+  else if (view.sub === 'volumes') table = volumesTable(p, df, snap, match);
   else table = containersTable(ctx, p, snap, match);
-  return h('div', null, bar, table);
+  return h('div', null, bar, selectionBar(p, snap, df), table);
+}
+
+const prune = (set, ids) => { const keep = new Set(ids); for (const id of [...set]) if (!keep.has(id)) set.delete(id); };
+
+// Checkbox column: click toggles, Shift+click selects the range from the last click.
+function selHeader(set, keys) {
+  const all = keys.length > 0 && keys.every((k) => set.has(k));
+  const cb = h('input', { type: 'checkbox', checked: all, title: all ? 'Select none' : 'Select all shown', 'aria-label': 'Select all', onchange: () => { if (all) keys.forEach((k) => set.delete(k)); else keys.forEach((k) => set.add(k)); draw(); } });
+  cb.indeterminate = !all && keys.some((k) => set.has(k));
+  return h('th', { class: 'dk-sel' }, cb);
+}
+function selCell(set, keys, i, label) {
+  return h('td', { class: 'dk-sel' }, h('input', {
+    type: 'checkbox', checked: set.has(keys[i]), 'aria-label': `Select ${label}`,
+    onclick: (e) => {
+      const on = e.target.checked;
+      if (e.shiftKey && lastClick.set === set && lastClick.index >= 0) {
+        const [a, b] = [Math.min(lastClick.index, i), Math.max(lastClick.index, i)];
+        keys.slice(a, b + 1).forEach((k) => (on ? set.add(k) : set.delete(k)));
+      } else if (on) set.add(keys[i]); else set.delete(keys[i]);
+      lastClick = { set, index: i };
+      draw();
+    },
+  }));
+}
+
+// Toolbar above the list: actions for the selection, otherwise cleanup of unused items.
+function selectionBar(p, snap, df) {
+  const btn = (label, title, onclick, cls) => h('button', { class: cls || '', title, onclick }, label);
+  if (view.sub === 'containers') {
+    const items = snap.containers.filter((c) => sel.containers.has(c.id));
+    const run = (action) => runBulk(p, 'container', action, items.map((c) => ({ id: c.id, name: c.name })));
+    if (!items.length) return h('div', { class: 'dk-selbar' }, h('span', { class: 'muted' }, 'Select containers to start, stop or remove several at once.'), h('div', { class: 'spacer' }),
+      btn('Remove stopped…', 'Remove all stopped containers', () => pruneDialog(p, 'container')));
+    return h('div', { class: 'dk-selbar active' }, h('b', null, `${items.length} selected`),
+      btn('▶ Start', 'Start the selected containers', () => run('start')),
+      btn('■ Stop', 'Stop the selected containers', () => run('stop')),
+      btn('↻ Restart', 'Restart the selected containers', () => run('restart')),
+      btn('⏸ Pause', 'Pause the selected containers', () => run('pause')),
+      btn('⏵ Resume', 'Resume paused containers', () => run('unpause')),
+      btn('Kill', 'Kill the selected containers (SIGKILL)', () => run('kill')),
+      btn('Remove…', 'Remove the selected containers', () => removeDialog(p, 'container', items), 'danger'),
+      h('div', { class: 'spacer' }), btn('Clear', 'Clear the selection', () => { sel.containers.clear(); draw(); }));
+  }
+  const kind = view.sub === 'images' ? 'image' : 'volume';
+  const set = sel[view.sub];
+  const items = !df ? [] : kind === 'image'
+    ? df.images.filter((im) => set.has(im.id)).map((im) => ({ id: im.id, name: im.tags[0] || im.id.replace(/^sha256:/, '').slice(0, 12), tags: im.tags, containers: im.containers }))
+    : df.volumes.filter((v) => set.has(v.name)).map((v) => ({ id: v.name, name: v.name, refs: v.refs }));
+  if (!items.length) return h('div', { class: 'dk-selbar' }, h('span', { class: 'muted' }, `Select ${view.sub} to remove several at once.`), h('div', { class: 'spacer' }),
+    btn('Remove unused…', `Remove ${view.sub} that no container uses`, () => pruneDialog(p, kind)));
+  return h('div', { class: 'dk-selbar active' }, h('b', null, `${items.length} selected`),
+    btn('Remove…', `Remove the selected ${view.sub}`, () => removeDialog(p, kind, items), 'danger'),
+    h('div', { class: 'spacer' }), btn('Clear', 'Clear the selection', () => { set.clear(); draw(); }));
 }
 
 function containersTable(ctx, p, snap, match) {
   const hh = hist.get(p.id) || { c: new Map() };
   const order = { running: 0, restarting: 1, paused: 2, created: 3, exited: 4, dead: 5 };
   const list = snap.containers
-    .filter((c) => (view.stopped || c.state === 'running') && match(c.name, c.image, c.compose, c.status, c.ports.join(' ')))
+    .filter((c) => shown(c.id, snap.updatedAt) && (view.stopped || c.state === 'running') && match(c.name, c.image, c.compose, c.status, c.ports.join(' ')))
     .sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.name.localeCompare(b.name));
   if (!list.length) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.containers.length ? 'No containers match.' : 'No containers on this host.');
+  const keys = list.map((c) => c.id);
   const stateCls = (s) => (s === 'running' ? 'dk-run' : s === 'paused' || s === 'restarting' ? 'dk-warn' : s === 'dead' ? 'error' : 'exited');
   return h('table', { class: 'list dk-table' },
-    h('tr', null, ['', 'Name', 'Status', 'Ports', 'CPU', 'Memory', 'Net I/O', ''].map((x) => h('th', null, x))),
-    list.map((c) => {
+    h('tr', null, selHeader(sel.containers, keys), ...['', 'Name', 'Status', 'Ports', 'CPU', 'Memory', 'Net I/O', ''].map((x) => h('th', null, x))),
+    list.map((c, i) => {
       const run = c.state === 'running';
+      const paused = c.state === 'paused';
       const b = busy.get(c.id);
-      const act = (action, label, title) => h('button', { class: 'icon', title, 'aria-label': title, disabled: !!b, onclick: () => doAction(p.id, c, action) }, label);
-      return h('tr', { class: run ? '' : 'dk-stopped' },
+      const item = [{ id: c.id, name: c.name }];
+      const act = (action, label, title) => h('button', { class: 'icon', title, 'aria-label': title, disabled: !!b, onclick: () => runBulk(p, 'container', action, item) }, label);
+      const more = (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        contextMenu(r.left, r.bottom + 2, [
+          paused ? { label: 'Resume', action: () => runBulk(p, 'container', 'unpause', item) } : { label: 'Pause', action: () => runBulk(p, 'container', 'pause', item) },
+          { label: 'Kill (SIGKILL)', action: () => runBulk(p, 'container', 'kill', item) },
+          '-',
+          { label: 'Remove…', action: () => removeDialog(p, 'container', [c]) },
+        ]);
+      };
+      return h('tr', { class: (run ? '' : 'dk-stopped') + (sel.containers.has(c.id) ? ' sel' : '') },
+        selCell(sel.containers, keys, i, c.name),
         h('td', null, h('span', { class: 'dot ' + stateCls(c.state), title: c.state })),
         h('td', null, h('div', { class: 'dk-name' }, c.name, c.compose ? h('span', { class: 'tag', title: 'Compose project' }, c.compose) : null), h('div', { class: 'muted dk-image', title: c.image }, c.image)),
         h('td', { class: 'muted' }, b ? h('span', { class: 'warn' }, b + '…') : c.status),
@@ -209,57 +286,129 @@ function containersTable(ctx, p, snap, match) {
           bar([{ value: c.mem, cls: level(c.mem / (c.memLimit || 1)) || 'mem' }], c.memLimit || c.mem)) : ''),
         h('td', { class: 'mono muted' }, run && c.net ? `↓${fmtSize(c.net.rx)} ↑${fmtSize(c.net.tx)}` : ''),
         h('td', { class: 'dk-actions' },
-          run ? act('stop', '■', 'Stop') : act('start', '▶', 'Start'),
+          run || paused ? act('stop', '■', 'Stop') : act('start', '▶', 'Start'),
           act('restart', '↻', 'Restart'),
           h('button', { class: 'icon', title: 'Logs', onclick: () => openLogs(ctx, p, c) }, 'Logs'),
-          h('button', { class: 'icon', title: run ? 'Open a shell in the container (new terminal session)' : 'Start the container to open a shell', disabled: !run, onclick: () => openShell(ctx, p, c) }, 'Shell')));
+          h('button', { class: 'icon', title: run ? 'Open a shell in the container (new terminal session)' : 'Start the container to open a shell', disabled: !run, onclick: () => openShell(ctx, p, c) }, 'Shell'),
+          h('button', { class: 'icon', title: 'More: pause, kill, remove', 'aria-label': 'More actions', disabled: !!b, onclick: more }, '⋯')));
     }));
 }
 
-function imagesTable(df, snap, match) {
+function imagesTable(p, df, snap, match) {
   if (!df) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.df && snap.df.error ? snap.df.error : 'Loading disk usage…');
   const used = new Set(snap.containers.map((c) => c.image));
-  const list = df.images.filter((im) => match(im.tags.join(' '), im.id)).sort((a, b) => b.size - a.size);
+  const list = df.images.filter((im) => shown(im.id, snap.slowAt) && match(im.tags.join(' '), im.id)).sort((a, b) => b.size - a.size);
+  const keys = list.map((im) => im.id);
+  const short = (id) => id.replace(/^sha256:/, '').slice(0, 12);
   return h('table', { class: 'list dk-table' },
-    h('tr', null, ['Image', 'ID', 'Size', 'Containers', 'Created'].map((x) => h('th', null, x))),
-    list.map((im) => h('tr', null,
-      h('td', null, im.tags.length ? im.tags.map((t) => h('div', { class: used.has(t) ? '' : 'muted' }, t)) : h('span', { class: 'muted' }, '<none>')),
-      h('td', { class: 'mono muted' }, im.id.replace(/^sha256:/, '').slice(0, 12)),
-      h('td', { class: 'mono' }, fmtSize(im.size)),
-      h('td', null, im.containers > 0 ? im.containers : h('span', { class: 'muted' }, im.containers < 0 ? '?' : 'unused')),
-      h('td', { class: 'muted' }, timeAgo(im.created) + ' ago'))));
-}
-
-function volumesTable(df, snap, match) {
-  if (!df) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.df && snap.df.error ? snap.df.error : 'Loading disk usage…');
-  const usedBy = (name) => snap.containers.filter((c) => c.mounts.some((m) => m.type === 'volume' && m.name === name));
-  const list = df.volumes.filter((v) => match(v.name, v.driver, v.mountpoint)).sort((a, b) => b.size - a.size);
-  if (!list.length) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, 'No volumes.');
-  return h('table', { class: 'list dk-table' },
-    h('tr', null, ['Volume', 'Driver', 'Size', 'Used by', 'Mount point'].map((x) => h('th', null, x))),
-    list.map((v) => {
-      const cs = usedBy(v.name);
-      return h('tr', null,
-        h('td', { class: 'mono dk-vol', title: v.name }, v.name, v.labels['com.docker.compose.project'] ? h('span', { class: 'tag' }, v.labels['com.docker.compose.project']) : null),
-        h('td', { class: 'muted' }, v.driver),
-        h('td', { class: 'mono' }, v.size >= 0 ? fmtSize(v.size) : '?'),
-        h('td', null, cs.length ? cs.map((c) => h('div', { class: c.state === 'running' ? '' : 'muted' }, c.name)) : h('span', { class: 'muted' }, 'unused')),
-        h('td', { class: 'mono muted dk-mount', title: v.mountpoint }, v.mountpoint));
+    h('tr', null, selHeader(sel.images, keys), ...['Image', 'ID', 'Size', 'Containers', 'Created', ''].map((x) => h('th', null, x))),
+    list.map((im, i) => {
+      const b = busy.get(im.id);
+      const item = { id: im.id, name: im.tags[0] || short(im.id), tags: im.tags, containers: im.containers };
+      return h('tr', { class: sel.images.has(im.id) ? 'sel' : '' },
+        selCell(sel.images, keys, i, item.name),
+        h('td', null, im.tags.length ? im.tags.map((t) => h('div', { class: used.has(t) ? '' : 'muted' }, t)) : h('span', { class: 'muted' }, '<none>')),
+        h('td', { class: 'mono muted' }, short(im.id)),
+        h('td', { class: 'mono' }, b ? h('span', { class: 'warn' }, b + '…') : fmtSize(im.size)),
+        h('td', null, im.containers > 0 ? im.containers : h('span', { class: 'muted' }, im.containers < 0 ? '?' : 'unused')),
+        h('td', { class: 'muted' }, timeAgo(im.created) + ' ago'),
+        h('td', { class: 'dk-actions' }, h('button', { class: 'icon', title: 'Remove image', 'aria-label': 'Remove', disabled: !!b, onclick: () => removeDialog(p, 'image', [item]) }, '✕')));
     }));
 }
 
-async function doAction(projectId, c, action) {
-  const label = { start: 'starting', stop: 'stopping', restart: 'restarting' }[action];
-  busy.set(c.id, label);
+function volumesTable(p, df, snap, match) {
+  if (!df) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.df && snap.df.error ? snap.df.error : 'Loading disk usage…');
+  const usedBy = (name) => snap.containers.filter((c) => c.mounts.some((m) => m.type === 'volume' && m.name === name));
+  const list = df.volumes.filter((v) => shown(v.name, snap.slowAt) && match(v.name, v.driver, v.mountpoint)).sort((a, b) => b.size - a.size);
+  if (!list.length) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, 'No volumes.');
+  const keys = list.map((v) => v.name);
+  return h('table', { class: 'list dk-table' },
+    h('tr', null, selHeader(sel.volumes, keys), ...['Volume', 'Driver', 'Size', 'Used by', 'Mount point', ''].map((x) => h('th', null, x))),
+    list.map((v, i) => {
+      const cs = usedBy(v.name);
+      const b = busy.get(v.name);
+      return h('tr', { class: sel.volumes.has(v.name) ? 'sel' : '' },
+        selCell(sel.volumes, keys, i, v.name),
+        h('td', { class: 'mono dk-vol', title: v.name }, v.name, v.labels['com.docker.compose.project'] ? h('span', { class: 'tag' }, v.labels['com.docker.compose.project']) : null),
+        h('td', { class: 'muted' }, v.driver),
+        h('td', { class: 'mono' }, b ? h('span', { class: 'warn' }, b + '…') : v.size >= 0 ? fmtSize(v.size) : '?'),
+        h('td', null, cs.length ? cs.map((c) => h('div', { class: c.state === 'running' ? '' : 'muted' }, c.name)) : h('span', { class: 'muted' }, 'unused')),
+        h('td', { class: 'mono muted dk-mount', title: v.mountpoint }, v.mountpoint),
+        h('td', { class: 'dk-actions' }, h('button', { class: 'icon', title: 'Remove volume', 'aria-label': 'Remove', disabled: !!b, onclick: () => removeDialog(p, 'volume', [{ id: v.name, name: v.name }]) }, '✕')));
+    }));
+}
+
+const BUSY_LABEL = { start: 'starting', stop: 'stopping', restart: 'restarting', pause: 'pausing', unpause: 'resuming', kill: 'killing', remove: 'removing' };
+
+// One action on one or more items; shows progress in the rows and a summary when done.
+async function runBulk(p, kind, action, items, opts = {}) {
+  for (const it of items) busy.set(it.id, BUSY_LABEL[action] || action);
   draw();
   try {
-    await call('dockerAction', projectId, c.id, action, c.name);
+    const results = await call('dockerBulk', p.id, kind, action, items, opts);
+    const failed = results.filter((r) => !r.ok);
+    const ok = results.length - failed.length;
+    for (const r of results) if (r.ok && action === 'remove') { sel[kind + 's'].delete(r.id); gone.set(r.id, Date.now()); }
+    if (failed.length) toast(`${failed.length} of ${results.length} failed — ${failed.map((r) => `${r.name}: ${r.error}`).join('; ')}`, { error: true, ms: 12000 });
+    else if (results.length > 1 || action === 'remove') toast(`${verb(action)} ${ok} ${kind}${ok === 1 ? '' : 's'}`);
   } catch (e) {
-    toast(`${c.name}: ${e.message}`, { error: true, ms: 8000 });
+    toast(e.message, { error: true, ms: 8000 });
   } finally {
-    busy.delete(c.id);
+    for (const it of items) busy.delete(it.id);
     draw();
   }
+}
+const verb = (a) => ({ start: 'Started', stop: 'Stopped', restart: 'Restarted', pause: 'Paused', unpause: 'Resumed', kill: 'Killed', remove: 'Removed' }[a] || a);
+
+// Names in a confirmation dialog: the first few, then "+ N more".
+const nameList = (names) => h('ul', { class: 'dk-names' }, [...names].sort((x, y) => x.localeCompare(y)).slice(0, 12).map((n) => h('li', { class: 'mono' }, n)), names.length > 12 ? h('li', { class: 'muted' }, `+ ${names.length - 12} more`) : null);
+const option = (label, checked, hint) => { const cb = h('input', { type: 'checkbox', checked }); return { cb, el: h('label', { class: 'dk-opt' }, cb, h('span', null, label, hint ? h('div', { class: 'muted' }, hint) : null)) }; };
+
+function removeDialog(p, kind, items) {
+  const names = items.map((x) => x.name);
+  const opts = [];
+  let note = null;
+  if (kind === 'container') {
+    const running = items.filter((c) => c.state === 'running' || c.state === 'paused' || c.state === 'restarting');
+    opts.push(['force', option('Stop running containers first (force)', running.length > 0, running.length ? `${running.length} of them ${running.length === 1 ? 'is' : 'are'} running` : '')]);
+    opts.push(['volumes', option('Also remove their anonymous volumes', false, 'Named volumes are kept')]);
+  } else if (kind === 'image') {
+    const inUse = items.filter((im) => im.containers > 0);
+    opts.push(['force', option('Force', false, 'Also removes images that stopped containers still reference')]);
+    if (inUse.length) note = h('div', { class: 'warn' }, `${inUse.length} of them ${inUse.length === 1 ? 'is' : 'are'} used by containers; Docker refuses to remove an image a running container uses.`);
+  } else {
+    const inUse = items.filter((v) => v.refs > 0);
+    if (inUse.length) note = h('div', { class: 'warn' }, `${inUse.length} of them ${inUse.length === 1 ? 'is' : 'are'} used by containers; Docker refuses to remove a volume in use. The data in a removed volume is gone.`);
+    else note = h('div', { class: 'muted' }, 'The data in these volumes is deleted.');
+  }
+  modal({
+    title: `Remove ${items.length} ${kind}${items.length === 1 ? '' : 's'}?`,
+    body: h('div', { class: 'dk-confirm' }, nameList(names), note, opts.map(([, o]) => o.el)),
+    okText: 'Remove',
+    onOk: () => { runBulk(p, kind, 'remove', items.map((x) => ({ id: x.id, name: x.name, tags: x.tags })), Object.fromEntries(opts.map(([k, o]) => [k, o.cb.checked]))); },
+  });
+  setTimeout(() => document.querySelector('.modal-foot .primary')?.classList.add('danger-primary'), 0);
+}
+
+function pruneDialog(p, kind) {
+  const text = {
+    container: ['Remove all stopped containers?', null],
+    image: ['Remove unused images?', option('All images without a container', false, 'Otherwise only untagged (dangling) images')],
+    volume: ['Remove unused volumes?', option('Also named volumes', false, 'Otherwise only anonymous volumes. The data in removed volumes is deleted.')],
+  }[kind];
+  const [title, opt] = text;
+  modal({
+    title,
+    body: h('div', { class: 'dk-confirm' }, h('div', null, kind === 'container' ? 'Every container that is not running is removed.' : `Only ${kind}s that no container uses are removed.`), opt ? opt.el : null),
+    okText: 'Remove',
+    onOk: async () => {
+      try {
+        const r = await call('dockerPrune', p.id, kind, { all: opt ? opt.cb.checked : false });
+        toast(`Removed ${r.count} ${kind}${r.count === 1 ? '' : 's'}${r.space ? `, ${fmtSize(r.space)} freed` : ''}`);
+      } catch (e) { toast(e.message, { error: true, ms: 8000 }); }
+    },
+  });
+  setTimeout(() => document.querySelector('.modal-foot .primary')?.classList.add('danger-primary'), 0);
 }
 
 async function openShell(ctx, p, c) {

@@ -301,3 +301,14 @@ table.list tr:hover td { background: var(--bg2); }
 .dk-logs.nowrap { white-space: pre; word-break: normal; }
 .tab.dk-tab { color: var(--fg); }
 .sess.dk-sess .sess-name { color: var(--fg2); }
+.dk-selbar { display: flex; align-items: center; gap: 4px; min-height: 32px; padding: 3px 8px; margin-bottom: 4px; border-radius: var(--radius); flex-wrap: wrap; font-size: 12px; }
+.dk-selbar.active { background: #1c2a40; border: 1px solid var(--accent2); }
+.dk-selbar button { padding: 2px 8px; font-size: 12px; }
+th.dk-sel, td.dk-sel { width: 22px; padding-right: 0; }
+.dk-table tr.sel td { background: #1a2638; }
+.dk-names { margin: 0 0 10px; padding-left: 18px; max-height: 220px; overflow: auto; }
+.dk-confirm { display: flex; flex-direction: column; gap: 8px; }
+.dk-opt { display: flex; gap: 8px; align-items: flex-start; color: var(--fg); font-size: 13px; }
+.dk-opt input { margin-top: 3px; }
+button.primary.danger-primary { background: #b62324; border-color: #b62324; }
+button.primary.danger-primary:hover { background: var(--red); }

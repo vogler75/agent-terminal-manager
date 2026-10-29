@@ -116,3 +116,101 @@ test('dial process that fails reports its stderr', async () => {
     await assert.rejects(c.request('GET', '/info'), /permission denied/);
   } finally { c.close(); }
 });
+
+// Records every request (method + path) in a file and answers like the Engine API.
+const RECORDER = `
+const fs = require('fs');
+const log = process.argv[2];
+let buf = '';
+process.stdin.setEncoding('latin1');
+process.stdin.on('data', (d) => {
+  buf += d;
+  let i;
+  while ((i = buf.indexOf('\\r\\n\\r\\n')) >= 0) {
+    const head = buf.slice(0, i); buf = buf.slice(i + 4);
+    const len = Number((head.match(/content-length: *(\\d+)/i) || [0, 0])[1]);
+    const chunked = /transfer-encoding: *chunked/i.test(head);
+    if (chunked) buf = buf.replace(/^0\\r\\n\\r\\n/, ''); else buf = buf.slice(len);
+    const [method, path] = head.split(' ');
+    fs.appendFileSync(log, method + ' ' + path + '\\n');
+    let status = '200 OK';
+    let body = { method, path };
+    if (path.includes('in-use')) { status = '409 Conflict'; body = { message: 'conflict: unable to remove (in use)' }; }
+    else if (path.startsWith('/containers/prune')) body = { ContainersDeleted: ['a', 'b'], SpaceReclaimed: 2048 };
+    else if (path.startsWith('/images/prune')) body = { ImagesDeleted: [{ Untagged: 'x:1' }, { Deleted: 'sha256:1' }], SpaceReclaimed: 4096 };
+    else if (path.startsWith('/volumes/prune')) body = { VolumesDeleted: null, SpaceReclaimed: 0 };
+    const text = JSON.stringify(body);
+    process.stdout.write('HTTP/1.1 ' + status + '\\r\\nContent-Type: application/json\\r\\nContent-Length: ' + Buffer.byteLength(text) + '\\r\\n\\r\\n' + text);
+  }
+});
+`;
+
+function recorderDocker() {
+  const { ProjectDocker } = require('../src/main/docker');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tc-rec-'));
+  const script = path.join(dir, 'rec.js');
+  const log = path.join(dir, 'requests.log');
+  fs.writeFileSync(script, RECORDER);
+  fs.writeFileSync(log, '');
+  const d = new ProjectDocker({ store: { getProject: () => ({ id: 'p', type: 'local', docker: { enabled: true } }) }, emit() {} }, { id: 'p' });
+  d.client = new DockerClient({ file: process.execPath, args: [script, log] });
+  const requests = () => fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).sort();
+  const done = () => { d.stop(); fs.rmSync(dir, { recursive: true, force: true }); };
+  return { d, requests, done };
+}
+
+test('container, image and volume operations map to the Engine API', async () => {
+  const { d, requests, done } = recorderDocker();
+  try {
+    for (const a of ['start', 'stop', 'restart', 'pause', 'unpause', 'kill']) await d.operate('container', a, { id: 'c1' });
+    await d.operate('container', 'remove', { id: 'c1' }, { force: true, volumes: true });
+    await d.operate('image', 'remove', { id: 'sha256:abc', tags: ['app:1'] });
+    await d.operate('image', 'remove', { id: 'sha256:def', tags: ['web:1', 'web:latest'] }); // several tags: each tag
+    await d.operate('image', 'remove', { id: 'sha256:def', tags: ['web:1', 'web:latest'] }, { force: true }); // force: by ID
+    await d.operate('volume', 'remove', { id: 'data vol' });
+    await assert.rejects(d.operate('network', 'remove', { id: 'n' }), /Unknown action/);
+    assert.deepStrictEqual(requests(), [
+      'DELETE /containers/c1?force=1&v=1',
+      'DELETE /images/sha256%3Aabc?force=0',
+      'DELETE /images/sha256%3Adef?force=1',
+      'DELETE /images/web%3A1',
+      'DELETE /images/web%3Alatest',
+      'DELETE /volumes/data%20vol?force=0',
+      'POST /containers/c1/kill',
+      'POST /containers/c1/pause',
+      'POST /containers/c1/restart?t=10',
+      'POST /containers/c1/start',
+      'POST /containers/c1/stop?t=10',
+      'POST /containers/c1/unpause',
+    ]);
+  } finally { done(); }
+});
+
+test('bulk: every item is tried, failures are reported per item', async () => {
+  const { d, requests, done } = recorderDocker();
+  try {
+    const r = await d.bulk('container', 'remove', [{ id: 'a', name: 'web' }, { id: 'in-use', name: 'db' }, { id: 'c', name: 'cache' }, { id: 'd', name: 'worker' }]);
+    assert.deepStrictEqual(r.map((x) => [x.name, x.ok]), [['web', true], ['db', false], ['cache', true], ['worker', true]]);
+    assert.match(r[1].error, /in use/);
+    assert.strictEqual(requests().length, 4);
+  } finally { done(); }
+});
+
+test('prune: stopped containers, unused or dangling images, anonymous or all unused volumes', async () => {
+  const { d, requests, done } = recorderDocker();
+  try {
+    assert.deepStrictEqual(await d.prune('container'), { count: 2, space: 2048 });
+    assert.deepStrictEqual(await d.prune('image', { all: true }), { count: 1, space: 4096 });
+    await d.prune('image');
+    assert.deepStrictEqual(await d.prune('volume', { all: true }), { count: 0, space: 0 });
+    await d.prune('volume');
+    const dec = requests().map(decodeURIComponent);
+    assert.deepStrictEqual(dec, [
+      'POST /containers/prune',
+      'POST /images/prune?filters={"dangling":["false"]}',
+      'POST /images/prune?filters={"dangling":["true"]}',
+      'POST /volumes/prune',
+      'POST /volumes/prune?filters={"all":["true"]}',
+    ]);
+  } finally { done(); }
+});

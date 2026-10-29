@@ -498,7 +498,7 @@ const cfgBase = () => {
       let audit = [];
       await waitFor(async () => {
         audit = await app.evaluate(() => globalThis.__termclaw.audit.list().map((e) => e.action));
-        return audit.includes('docker.stop') && audit.includes('docker.start');
+        return audit.includes('docker.container.stop') && audit.includes('docker.container.start');
       }, { msg: 'docker actions in the audit log' }).catch((e) => { throw new Error(`${e.message} (found: ${audit.slice(-8).join(', ')})`); });
 
       // Volumes: size and the container that uses it
@@ -518,6 +518,56 @@ const cfgBase = () => {
       await waitFor(async () => /\d+\.\d+\.\d+\s+\/data/.test(await m.output(sid)), { msg: 'command output from the container' });
       await m.close(sid);
 
+      // Selection: stop two containers at once, then remove both (only containers made by this test)
+      const two = [`${name}-a`, `${name}-b`];
+      for (const n of two) docker('run', '-d', '--name', n, 'alpine', 'sleep', '600');
+      const rowOf = (n) => page.locator('.dk-table tr', { has: page.locator(`.dk-name:text-is("${n}")`) });
+      for (const n of two) await rowOf(n).waitFor({ timeout: 20000 });
+      for (const n of two) await rowOf(n).getByRole('checkbox').check();
+      await page.locator('.dk-selbar.active b', { hasText: '2 selected' }).waitFor();
+      await page.locator('.dk-selbar.active').getByRole('button', { name: '■ Stop' }).click();
+      await waitFor(() => two.every((n) => docker('inspect', '-f', '{{.State.Status}}', n).stdout.trim() === 'exited'), { msg: 'both stopped', timeout: 40000 });
+      await page.locator('.dk-selbar.active').getByRole('button', { name: 'Remove…' }).click();
+      assert.match(await page.locator('.modal .dk-names').innerText(), new RegExp(`${two[0]}[\\s\\S]*${two[1]}`));
+      await page.locator('.modal').getByRole('button', { name: 'Remove', exact: true }).click();
+      await waitFor(() => two.every((n) => docker('inspect', n).status !== 0), { msg: 'both removed', timeout: 30000 });
+      await page.locator('.dk-selbar:not(.active)').waitFor({ timeout: 10000 }); // selection cleared
+
+      // Images: remove a single-tag image made by this test
+      const img = `tc-e2e-img:${RUN}`;
+      docker('run', '--name', `${name}-mk`, 'alpine', 'touch', '/made-by-e2e');
+      docker('commit', `${name}-mk`, img);
+      docker('rm', `${name}-mk`);
+      await page.locator('.dk-tabs button', { hasText: 'Images' }).click();
+      await page.locator('.dk-head button', { hasText: '⟳' }).click(); // disk usage (images, volumes) refreshes once a minute otherwise
+      const irow = page.locator('.dk-table tr', { has: page.locator(`td div:text-is("${img}")`) });
+      await irow.waitFor({ timeout: 30000 });
+      await irow.getByRole('button', { name: 'Remove' }).click();
+      await page.locator('.modal').getByRole('button', { name: 'Remove', exact: true }).click();
+      await waitFor(() => docker('image', 'inspect', img).status !== 0, { msg: 'image removed', timeout: 30000 });
+
+      // Volumes: a volume in use is refused with Docker's message; an unused one is removed
+      const vol2 = `${vol}-unused`;
+      docker('volume', 'create', vol2);
+      await page.locator('.dk-tabs button', { hasText: 'Volumes' }).click();
+      await page.locator('.dk-head button', { hasText: '⟳' }).click();
+      const vrowOf = (v) => page.locator('.dk-table tr', { has: page.locator(`td.dk-vol:text-is("${v}")`) });
+      await vrowOf(vol2).waitFor({ timeout: 30000 });
+      await vrowOf(vol).getByRole('checkbox').check();
+      await vrowOf(vol2).getByRole('checkbox').check();
+      await page.locator('.dk-selbar.active').getByRole('button', { name: 'Remove…' }).click();
+      assert.match(await page.locator('.modal').innerText(), /used by containers/);
+      await page.locator('.modal').getByRole('button', { name: 'Remove', exact: true }).click();
+      await page.locator('.toast.error', { hasText: '1 of 2 failed' }).waitFor({ timeout: 20000 });
+      assert.strictEqual(docker('volume', 'inspect', vol2).status === 0, false, 'unused volume removed');
+      assert.strictEqual(docker('volume', 'inspect', vol).status, 0, 'volume in use kept');
+      await waitFor(async () => {
+        const audit = await app.evaluate(() => globalThis.__termclaw.audit.list().map((e) => e.action + ' ' + e.detail));
+        return audit.some((a) => a.startsWith('docker.container.remove') && a.includes(two[1])) && audit.some((a) => a.startsWith('docker.image.remove')) && audit.some((a) => a.startsWith('docker.volume.remove') && a.includes(vol2) && !a.includes(`${vol},`));
+      }, { msg: 'removals in the audit log' });
+      await shot('docker-volumes');
+      await page.locator('.dk-tabs button', { hasText: 'Containers' }).click();
+
       // Leaving the tab stops polling
       await page.click(`#sidebar .proj-name:text("docker-${RUN}")`);
       await page.click('#sidebar .proj-name:text("lokal")');
@@ -530,8 +580,9 @@ const cfgBase = () => {
       await shot('docker-error');
       await page.click('#sidebar .proj-name:text("lokal")');
     } finally {
-      docker('rm', '-f', name);
-      docker('volume', 'rm', vol);
+      docker('rm', '-f', name, `${name}-a`, `${name}-b`, `${name}-mk`);
+      docker('volume', 'rm', vol, `${vol}-unused`);
+      docker('image', 'rm', `tc-e2e-img:${RUN}`);
     }
   }, { skip: DOCKER ? null : 'TERMCLAW_E2E_DOCKER / TERMCLAW_E2E_WSL not set' });
 

@@ -198,9 +198,18 @@ const api = {
   dockerWatch: (projectId) => docker.watch(projectId),
   dockerUnwatch: (projectId) => docker.unwatch(projectId),
   dockerRefresh: (projectId) => docker.refresh(projectId),
-  dockerAction: async (projectId, containerId, action, name) => {
-    await docker.action(projectId, containerId, action);
-    audit.add({ source: 'app', action: `docker.${action}`, detail: `${store.getProject(projectId).name}: ${name || containerId.slice(0, 12)}` });
+  // kind: container | image | volume; items: [{id, name, tags}]; returns one result per item.
+  dockerBulk: async (projectId, kind, action, items, opts = {}) => {
+    const results = await docker.bulk(projectId, kind, action, items, opts);
+    const done = results.filter((r) => r.ok).map((r) => r.name || r.id.slice(0, 12));
+    const flags = Object.entries(opts).filter(([, v]) => v).map(([k]) => k);
+    if (done.length) audit.add({ source: 'app', action: `docker.${kind}.${action}`, detail: `${store.getProject(projectId).name}: ${done.join(', ')}${flags.length ? ` (${flags.join(', ')})` : ''}` });
+    return results;
+  },
+  dockerPrune: async (projectId, kind, opts = {}) => {
+    const r = await docker.prune(projectId, kind, opts);
+    audit.add({ source: 'app', action: `docker.${kind}.prune`, detail: `${store.getProject(projectId).name}: ${r.count} removed, ${Math.round(r.space / 1048576)} MB${opts.all ? ' (all unused)' : ''}` });
+    return r;
   },
   dockerLogs: (projectId, containerId, opts) => docker.logs(projectId, containerId, opts),
   dockerLogsStop: (id) => docker.stopLogs(id),
