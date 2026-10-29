@@ -22,8 +22,15 @@ const crypto = require('crypto');
 if (process.env.TERMCLAW_USER_DATA) app.setPath('userData', path.resolve(process.env.TERMCLAW_USER_DATA));
 else {
   // Renamed from Agent Terminal Manager: move the old data folder over so settings and projects are kept.
+  // If that fails (old app still running, new folder already created), copy the app's own files.
   const old = path.join(app.getPath('appData'), 'Agent Terminal Manager');
-  try { if (fs.existsSync(old) && !fs.existsSync(app.getPath('userData'))) fs.renameSync(old, app.getPath('userData')); } catch {}
+  const dir = app.getPath('userData');
+  if (fs.existsSync(path.join(old, 'config.json')) && !fs.existsSync(path.join(dir, 'config.json'))) {
+    try { if (!fs.existsSync(dir)) fs.renameSync(old, dir); } catch {}
+    for (const f of ['config.json', 'audit.log', 'skills']) {
+      try { if (fs.existsSync(path.join(old, f)) && !fs.existsSync(path.join(dir, f))) fs.cpSync(path.join(old, f), path.join(dir, f), { recursive: true }); } catch {}
+    }
+  }
 }
 
 if (!process.env.TERMCLAW_USER_DATA && !app.requestSingleInstanceLock()) {

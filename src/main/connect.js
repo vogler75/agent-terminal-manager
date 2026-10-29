@@ -25,12 +25,20 @@ function posixDir(dir) {
 
 // Shell script that attaches to (or creates) a named tmux session, running `command` on creation.
 // Falls back to a plain login shell when tmux is missing on the target.
+// Sessions from before the rename (atm-…) are taken over: renamed to the new name; a session that
+// already has the new name is kept as <name>-replaced, not killed.
 function tmuxScript(name, dir, command) {
   const d = posixDir(dir);
   const cdPart = d ? `cd ${d} 2>/dev/null; ` : '';
   const create = `tmux new-session -d -s ${shq(name)}${d ? ` -c ${d}` : ''}` +
     (command ? ` && tmux send-keys -t ${shq(name)} ${shq(command)} Enter` : '');
-  return `${cdPart}if command -v tmux >/dev/null 2>&1; then ` +
+  const legacy = name.startsWith('termclaw-') ? 'atm-' + name.slice('termclaw-'.length) : '';
+  const takeOver = legacy
+    ? `if tmux has-session -t ${shq('=' + legacy)} 2>/dev/null; then ` +
+      `tmux has-session -t ${shq('=' + name)} 2>/dev/null && tmux rename-session -t ${shq('=' + name)} ${shq(name + '-replaced')}; ` +
+      `tmux rename-session -t ${shq('=' + legacy)} ${shq(name)}; fi; `
+    : '';
+  return `${cdPart}if command -v tmux >/dev/null 2>&1; then ` + takeOver +
     `tmux has-session -t ${shq('=' + name)} 2>/dev/null || { ${create}; }; ` +
     `exec tmux attach-session -t ${shq('=' + name)}; ` +
     `else echo '[termclaw] tmux not found, starting plain shell'; ${command ? command + '; ' : ''}exec "\${SHELL:-/bin/sh}" -l; fi`;

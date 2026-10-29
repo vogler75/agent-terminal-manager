@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildSpawn, buildForwardArgs, tmuxName, shq, posixDir } = require('../src/main/connect');
+const { buildSpawn, buildForwardArgs, tmuxName, tmuxScript, shq, posixDir } = require('../src/main/connect');
 const { containsBell, stripAnsi } = require('../src/main/sessions');
 const { Store, stripSecrets } = require('../src/main/store');
 const { simplifyMessages, messagesToText } = require('../src/main/opencode');
@@ -55,6 +55,12 @@ test('wsl spawn: distribution, --cd, tmux via bash -lc', () => {
   assert.deepStrictEqual(s.args.slice(0, 7), ['-d', 'Ubuntu', '--cd', '/tmp', '--', 'bash', '-lc']);
   const plain = buildSpawn({ name: 'p', type: 'wsl', wslDistro: 'Ubuntu', directory: '/tmp', tmux: false }, null, { name: 'w' });
   assert.deepStrictEqual(plain.args, ['-d', 'Ubuntu', '--cd', '/tmp']);
+});
+
+test('tmux script takes over sessions from before the rename (atm-…)', () => {
+  const script = tmuxScript('termclaw-p-shell', '', '');
+  assert.match(script, /has-session -t '=atm-p-shell'.*rename-session -t '=termclaw-p-shell' 'termclaw-p-shell-replaced'.*rename-session -t '=atm-p-shell' 'termclaw-p-shell'/);
+  assert.ok(!tmuxScript('other', '', '').includes('atm-'));
 });
 
 test('ssh X11 forwarding: off, local X server, through WSL', () => {
