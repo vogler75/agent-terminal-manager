@@ -1,5 +1,5 @@
 'use strict';
-// MCP server of the app: Streamable HTTP with bearer tokens, session tools, status resources with subscriptions.
+// MCP server of the app: Streamable HTTP with bearer tokens (app tokens or OAuth), session tools, status resources with subscriptions.
 const http = require('http');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
@@ -7,6 +7,7 @@ const { McpServer, ResourceTemplate } = require('@modelcontextprotocol/sdk/serve
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { SubscribeRequestSchema, UnsubscribeRequestSchema, isInitializeRequest } = require('@modelcontextprotocol/sdk/types.js');
 const { z } = require('zod');
+const { OAuthServer } = require('./mcp-oauth');
 
 // Sent to MCP clients on initialize; most clients put it into the model's context.
 const SERVER_INSTRUCTIONS = `Agent Terminal Manager: control coding agents and terminals running in projects.
@@ -41,6 +42,8 @@ class McpService extends EventEmitter {
     this.clients = new Map(); // mcp session id -> {transport, server, ctx, subs}
     this.internalTokens = new Map(); // hash -> ctx (orchestrator tokens, memory only)
     this.status = { running: false, error: null, url: null };
+    this.oauth = new OAuthServer({ store, audit });
+    this.oauth.on('revoked', (g) => this._dropClients((c) => c.ctx.tokenId === 'oauth:' + g.id));
 
     sessions.on('status', (s) => this._notifyStatus(s));
     for (const ev of ['opened', 'closed', 'updated']) sessions.on(ev, () => this._notifyListChanged());
@@ -108,10 +111,12 @@ class McpService extends EventEmitter {
 
   updateInternalScope(ctx, sessionKeys) { ctx.sessionKeys = new Set(sessionKeys); }
 
-  _authenticate(req) {
+  async _authenticate(req) {
     const h = req.headers.authorization || '';
     const m = /^Bearer\s+(.+)$/i.exec(h);
     if (!m) return null;
+    const oauth = await this.oauth.authenticate(m[1].trim(), req);
+    if (oauth) return oauth;
     const hash = sha256(m[1].trim());
     const internal = this.internalTokens.get(hash);
     if (internal) return internal;
@@ -170,11 +175,13 @@ class McpService extends EventEmitter {
     const remote = req.socket.remoteAddress;
     const fwd = req.headers['x-forwarded-for'];
     const external = !isLoopback(remote) || !!fwd;
-    const ctx = this._authenticate(req);
     const url = new URL(req.url, 'http://x');
+    // OAuth metadata, registration, sign-in and token endpoints need no bearer token.
+    if (await this.oauth.handle(req, res, url, fwd || remote)) return;
+    const ctx = await this._authenticate(req);
     if (!ctx) {
       this.audit.add({ source: external ? 'external' : 'mcp', action: 'auth.denied', detail: `${req.method} ${url.pathname}`, remote: fwd || remote });
-      res.writeHead(401, { 'www-authenticate': 'Bearer' });
+      res.writeHead(401, { 'www-authenticate': this.oauth.challenge(req) });
       res.end();
       return;
     }

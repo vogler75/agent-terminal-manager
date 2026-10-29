@@ -25,6 +25,18 @@ const DEFAULT_SETTINGS = {
     allowRunCommand: false,
     // Only sessions marked "shared" are visible to general MCP tokens.
     restrictToShared: true,
+    // OAuth sign-in for web clients such as claude.ai (each sign-in is approved in the app).
+    oauth: false,
+    // builtin = the app is the authorization server; external = an identity provider (authentik, Keycloak, …)
+    oauthMode: 'builtin',
+    oauthIssuer: '',
+    oauthAudience: '', // allowed aud / client ids of the provider's tokens
+    oauthGroupsClaim: 'groups',
+    oauthAllowedGroup: '', // empty = every user of the provider application
+    oauthFullGroup: '', // empty = full access for all; otherwise others are read-only
+    oauthScopes: 'openid profile email',
+    // MCP URL as clients reach it through a reverse proxy / tunnel, e.g. https://atm.example.com/mcp
+    publicUrl: '',
   },
 };
 
@@ -83,6 +95,9 @@ function normalize(data) {
     hosts: (d.hosts || []).map(normalizeHost),
     projects: (d.projects || []).map(normalizeProject),
     tokens: d.tokens || [],
+    // OAuth clients (registered by DCR) and approved sign-ins (token hashes); machine-local like tokens.
+    oauthClients: d.oauthClients || [],
+    oauthGrants: d.oauthGrants || [],
     orchestrators: d.orchestrators || [],
     // MCP servers that can be deployed to coding agents; env/headers are encrypted in `secrets`.
     mcpLibrary: d.mcpLibrary || [],
@@ -215,7 +230,7 @@ class Store extends EventEmitter {
 
   // Import / export
   exportJson() {
-    const { tokens, ...rest } = this.data; // tokens are machine-local secrets (hashes), not exported
+    const { tokens, oauthClients, oauthGrants, ...rest } = this.data; // tokens are machine-local secrets (hashes), not exported
     return JSON.stringify(stripSecrets(rest), null, 2);
   }
   importJson(text, { merge = false } = {}) {
@@ -232,6 +247,8 @@ class Store extends EventEmitter {
       byId(this.data.orchestrators, incoming.orchestrators);
     } else {
       incoming.tokens = this.data.tokens;
+      incoming.oauthClients = this.data.oauthClients;
+      incoming.oauthGrants = this.data.oauthGrants;
       this.data = incoming;
     }
     this.save();

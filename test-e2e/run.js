@@ -107,6 +107,17 @@ const cfgBase = () => {
     await shot('p1-local');
   });
 
+  await step('P1 Ctrl+V pastes the clipboard into the terminal exactly once', async () => {
+    // A doubled paste would leave an unbalanced quote, so the echo line only appears for a single paste.
+    await app.evaluate(({ clipboard }, t) => clipboard.writeText(t), `echo 'pst-${RUN}`);
+    await page.click('.xterm-screen');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+V' : 'Control+V');
+    await sleep(600);
+    await page.keyboard.type("-end'");
+    await page.keyboard.press('Enter');
+    await waitFor(async () => ((await m.output(ids.local)) || '').split('\n').some((l) => l.trim() === `pst-${RUN}-end`), { msg: 'single paste output' });
+  });
+
   await step('P1 terminal resize is passed to the shell', async () => {
     const before = await m.info(ids.local);
     await page.setViewportSize({ width: 900, height: 600 });
@@ -425,6 +436,88 @@ const cfgBase = () => {
     await shot('p7-mcp');
     roToken = (await page.evaluate(() => window.atm.call('createToken', { name: 'ro', readOnly: true }))).secret;
     client = await connect(token);
+  });
+
+  await step('P7 OAuth sign-in (claude.ai style): discovery, DCR, approval dialog in the app, PKCE, MCP call, revoke', async () => {
+    await page.locator('label:has-text("Allow OAuth sign-in") input').check();
+    const r401 = await fetch(mcpUrl, { method: 'POST', body: '{}' });
+    const meta = /resource_metadata="([^"]+)"/.exec(r401.headers.get('www-authenticate'));
+    assert.ok(meta, 'resource_metadata in WWW-Authenticate: ' + r401.headers.get('www-authenticate'));
+    const prm = await (await fetch(meta[1])).json();
+    assert.strictEqual(prm.resource, mcpUrl);
+    const asm = await (await fetch(prm.authorization_servers[0] + '/.well-known/oauth-authorization-server')).json();
+    const redirect = 'https://claude.ai/api/mcp/auth_callback';
+    const reg = await (await fetch(asm.registration_endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude e2e', redirect_uris: [redirect] }) })).json();
+    const verifier = require('crypto').randomBytes(32).toString('base64url');
+    const challenge = require('crypto').createHash('sha256').update(verifier).digest('base64url');
+    const authPage = await fetch(asm.authorization_endpoint + '?' + new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: redirect, code_challenge: challenge, code_challenge_method: 'S256', state: 'e2e', scope: 'mcp:read mcp:full', resource: mcpUrl }));
+    const html = await authPage.text();
+    const reqId = /request=([\w-]+)/.exec(html)[1];
+    // The user approves in the app (read-only)
+    await page.waitForSelector('.modal:has-text("MCP sign-in request")');
+    assert.ok(await page.isVisible('.modal:has-text("Claude e2e")'));
+    await shot('p7-oauth-approve');
+    await page.locator('.modal label:has-text("Read-only") input').check();
+    await page.locator('.modal button:has-text("Approve")').click();
+    const st = await waitFor(async () => { const s = await (await fetch(`${prm.authorization_servers[0]}/oauth/authorize/status?request=${reqId}`)).json(); return s.location && s; }, { msg: 'approval' });
+    const code = new URL(st.location).searchParams.get('code');
+    const tok = await (await fetch(asm.token_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: reg.client_id, redirect_uri: redirect, code_verifier: verifier }) })).json();
+    assert.match(tok.access_token, /^atmo_/);
+    const oc = await connect(tok.access_token);
+    const tools = (await oc.listTools()).tools.map((t) => t.name);
+    assert.ok(tools.includes('list_sessions') && !tools.includes('send_to_session'), 'read-only tools: ' + tools.join(','));
+    assert.ok(Array.isArray(await callTool(oc, 'list_sessions')));
+    await oc.close();
+    // Revoke in the UI: the token stops working
+    await page.click('#sidebar button:has-text("MCP")');
+    await page.waitForSelector('tr:has-text("Claude e2e") button:has-text("Revoke")');
+    await page.locator('tr:has-text("Claude e2e") button:has-text("Revoke")').click();
+    await waitFor(async () => (await fetch(mcpUrl, { method: 'POST', headers: { authorization: 'Bearer ' + tok.access_token }, body: '{}' })).status === 401, { msg: 'revoked token rejected' });
+    await page.locator('label:has-text("Allow OAuth sign-in") input').uncheck();
+  });
+
+  await step('P7 OAuth with an external identity provider (authentik style): JWT validated, groups → access', async () => {
+    const crypto = require('crypto');
+    const http = require('http');
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    let issuer;
+    const idp = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      if (req.url.endsWith('/.well-known/openid-configuration')) res.end(JSON.stringify({ issuer, jwks_uri: issuer + 'jwks/' }));
+      else res.end(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'k1', use: 'sig' }] }));
+    });
+    await new Promise((r) => idp.listen(0, '127.0.0.1', r));
+    issuer = `http://127.0.0.1:${idp.address().port}/application/o/atm/`;
+    const jwt = (claims) => {
+      const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+      const data = enc({ alg: 'RS256', kid: 'k1' }) + '.' + enc({ iss: issuer, aud: 'atm-claude', exp: Math.floor(Date.now() / 1000) + 300, ...claims });
+      return data + '.' + crypto.sign('sha256', Buffer.from(data), privateKey).toString('base64url');
+    };
+    try {
+      await page.click('#sidebar button:has-text("MCP")');
+      await page.locator('label:has-text("Allow OAuth sign-in") input').check();
+      await page.locator('select:has(option[value="external"])').selectOption('external');
+      const fill = async (label, v) => page.locator(`.form label:has-text("${label}") input, .form label:has-text("${label}") + input`).first().fill(v);
+      await fill('Issuer URL', issuer);
+      await fill('Allowed client ids', 'atm-claude');
+      await fill('Group with full access', 'atm-admins');
+      await page.locator('.card:has-text("OAuth sign-in") button:has-text("Test provider")').click();
+      await page.waitForSelector('text=signing key(s)');
+      await page.locator('.card:has-text("OAuth sign-in") button.primary:has-text("Apply")').click();
+      await waitFor(async () => (await (await fetch(`http://127.0.0.1:${MCP_PORT}/.well-known/oauth-protected-resource`)).json()).authorization_servers?.[0] === issuer, { msg: 'metadata points at the provider' });
+      await shot('p7-oauth-external');
+      const admin = await connect(jwt({ sub: 'a', preferred_username: 'alice', groups: ['atm-admins'] }));
+      assert.ok((await admin.listTools()).tools.some((t) => t.name === 'send_to_session'));
+      await admin.close();
+      const user = await connect(jwt({ sub: 'b', groups: [] }));
+      assert.ok(!(await user.listTools()).tools.some((t) => t.name === 'send_to_session'));
+      await user.close();
+      const r = await fetch(mcpUrl, { method: 'POST', headers: { authorization: 'Bearer ' + jwt({ sub: 'c', aud: 'other-app' }) }, body: '{}' });
+      assert.strictEqual(r.status, 401);
+    } finally {
+      await page.evaluate(() => window.atm.call('updateSettings', { mcp: { oauth: false, oauthMode: 'builtin' } }));
+      idp.close();
+    }
   });
 
   await step('P7 list_sessions / send_to_session / wait_until_idle / read_output', async () => {

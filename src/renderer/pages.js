@@ -323,7 +323,8 @@ export function renderMcp(ctx, main) {
         field('Bind address', bind, '127.0.0.1 = local only (recommended behind Nginx on the same machine); 0.0.0.0 = all interfaces'),
         field('Port', port),
         h('div', { class: 'full row' }, h('div', { class: 'spacer' }), h('button', { onclick: async () => { await call('updateSettings', { mcp: { bind: bind.value.trim() || '127.0.0.1', port: Number(port.value) || 47900 } }); reloadConfig(ctx); toast('MCP server restarted'); } }, 'Apply'))),
-      h('p', { class: 'muted' }, 'Streamable HTTP at ', h('code', null, localUrl), '. Every request needs ', h('code', null, 'Authorization: Bearer <token>'), '. For access from outside (Claude app, web, voice mode), publish the port through an Nginx reverse proxy with HTTPS — see docs/nginx.conf. External requests are logged.')),
+      h('p', { class: 'muted' }, 'Streamable HTTP at ', h('code', null, localUrl), '. Local clients send ', h('code', null, 'Authorization: Bearer <token>'), ' with a token below; web clients such as claude.ai sign in with OAuth (see below). For access from outside, publish the port through a reverse proxy or tunnel with HTTPS — see docs/nginx.conf. External requests are logged.')),
+    oauthCard(ctx),
     h('div', { class: 'card' },
       h('div', { class: 'row' }, h('h2', { style: { margin: 0 } }, 'Tokens'), h('div', { class: 'spacer' }),
         h('button', { onclick: () => newToken(ctx, false, renderTokens) }, '+ Token (full)'),
@@ -341,11 +342,131 @@ export function renderMcp(ctx, main) {
       h('p', { class: 'muted' }, 'Read tools: list_projects, list_sessions, read_output, wait_until_idle, wait_for_any_idle, list_hosts, find_free_host. Resources: session://<project>/<name>/status (subscribable). Orchestrator sessions are never a tool target.')),
     h('div', { class: 'card' },
       h('h2', null, 'Connect a client'),
+      h('p', null, 'claude.ai (web, desktop, mobile): turn on OAuth sign-in above, then Customize → Connectors → Add custom connector with the public URL ', h('code', null, cfg.publicUrl || 'https://<your host>/mcp'), '. Built-in mode: leave the OAuth client fields empty and approve the sign-in in this app. External provider: enter its client id under Advanced settings if it has no automatic registration.'),
       h('p', null, 'Claude Code (HTTP):'),
       h('pre', { class: 'secret' }, `claude mcp add --transport http atm ${localUrl} --header "Authorization: Bearer <token>"`),
       h('p', null, 'Clients that only support stdio (e.g. Claude Desktop) via the bridge:'),
       h('pre', { class: 'secret' }, JSON.stringify({ mcpServers: { atm: { command: 'node', args: [S.stdioBridge || 'atm-mcp-stdio.js', localUrl], env: { ATM_MCP_TOKEN: '<token>' } } } }, null, 2))));
   renderTokens();
+}
+
+// OAuth sign-in for web clients (claude.ai cannot send a fixed Authorization header).
+function oauthCard(ctx) {
+  const { S, call } = ctx;
+  const cfg = S.config.settings.mcp || {};
+  const publicUrl = h('input', { value: cfg.publicUrl || '', placeholder: 'https://atm.example.com/mcp' });
+  const grantsBox = h('div');
+  const renderGrants = async () => {
+    const grants = await call('oauthGrants');
+    clear(grantsBox);
+    if (!grants.length) { grantsBox.appendChild(h('div', { class: 'muted' }, 'No sign-ins yet.')); return; }
+    grantsBox.appendChild(h('table', { class: 'list' },
+      h('tr', null, ['Client', 'Returns to', 'Access', 'Approved', 'Last used', 'Status', ''].map((t) => h('th', null, t))),
+      grants.map((g) => h('tr', null,
+        h('td', null, g.clientName),
+        h('td', { class: 'mono' }, g.redirectHost),
+        h('td', null, g.readOnly ? 'read-only' : 'full'),
+        h('td', null, fmtTime(g.created)),
+        h('td', null, g.lastUsed ? timeAgo(g.lastUsed) + ' ago' : '–'),
+        h('td', null, g.revoked ? h('span', { class: 'bad' }, 'revoked') : h('span', { class: 'ok' }, 'active')),
+        h('td', null, h('div', { class: 'row' },
+          !g.revoked ? h('button', { onclick: async () => { await call('oauthRevoke', g.id); renderGrants(); } }, 'Revoke') : null,
+          h('button', { class: 'icon danger', title: 'Delete', onclick: async () => { await call('oauthDelete', g.id); renderGrants(); } }, '✕')))))));
+  };
+  renderGrants();
+  const mode = h('select', null,
+    h('option', { value: 'builtin', selected: cfg.oauthMode !== 'external' }, 'Built-in — the app signs clients in; you approve each sign-in here'),
+    h('option', { value: 'external', selected: cfg.oauthMode === 'external' }, 'External identity provider — authentik, Keycloak, Entra ID, …'));
+  const inp = (key, placeholder, def = '') => h('input', { value: cfg[key] ?? def, placeholder });
+  const issuer = inp('oauthIssuer', 'https://auth.example.com/application/o/atm/');
+  const audience = inp('oauthAudience', 'client id of the provider application');
+  const groupsClaim = inp('oauthGroupsClaim', 'groups', 'groups');
+  const allowedGroup = inp('oauthAllowedGroup', 'empty = every user of the application');
+  const fullGroup = inp('oauthFullGroup', 'empty = full access for everybody');
+  const scopes = inp('oauthScopes', 'openid profile email', 'openid profile email');
+  const testOut = h('div', { class: 'full muted', style: { fontSize: '12px', whiteSpace: 'pre-wrap' } });
+  const builtinBox = h('div', null,
+    h('p', { class: 'muted' }, 'The app is its own OAuth server (discovery metadata, client registration, PKCE, refresh tokens). In claude.ai leave the OAuth client fields empty; the sign-in shows up here for approval.'),
+    h('div', { style: { marginTop: '10px' } }, grantsBox));
+  const externalBox = h('div', null,
+    h('div', { class: 'form' },
+      field('Issuer URL', issuer, 'The provider’s issuer (authentik: OpenID Configuration Issuer of the OAuth2 provider)'),
+      field('Allowed client ids / audience', audience, 'Tokens must name one of these in aud or azp (authentik: the provider’s Client ID); comma separated'),
+      field('Group claim', groupsClaim, 'authentik / Entra: groups · Keycloak: realm_access.roles'),
+      field('Required group', allowedGroup),
+      field('Group with full access', fullGroup, 'Other users get read-only access'),
+      field('Scopes', scopes, 'Requested by the client at sign-in'),
+      h('div', { class: 'full row' }, h('button', { onclick: async () => {
+        testOut.textContent = 'Testing…';
+        try {
+          const t = await call('oauthTestIssuer', issuer.value.trim());
+          testOut.textContent = `✓ ${t.issuer} · ${t.keys} signing key(s) · PKCE S256: ${t.pkce ? 'yes' : 'no'}\n` +
+            (t.registration || t.cimd ? 'Clients can register automatically.' : 'No automatic client registration: in claude.ai open Advanced settings and enter the Client ID (and secret) of the provider application.');
+        } catch (e) { testOut.textContent = '✗ ' + e.message; }
+      } }, 'Test provider')),
+      testOut),
+    h('p', { class: 'muted' }, 'In the provider create an OAuth2/OpenID application for the client with redirect URI https://claude.ai/api/mcp/auth_callback (Claude Code: http://localhost/callback, any port), signing with RS256/ES256 and JWT access tokens. The provider must be reachable from the internet as well. Access is ended in the provider; tokens expire on their own.'));
+  const showMode = () => { builtinBox.style.display = mode.value === 'external' ? 'none' : ''; externalBox.style.display = mode.value === 'external' ? '' : 'none'; };
+  mode.onchange = showMode;
+  showMode();
+  return h('div', { class: 'card' },
+    h('h2', null, 'OAuth sign-in (claude.ai and other web clients)'),
+    h('label', { class: 'row', style: { color: 'var(--fg)' } },
+      h('input', { type: 'checkbox', checked: !!cfg.oauth, onchange: async (e) => { await call('updateSettings', { mcp: { oauth: e.target.checked } }); reloadConfig(ctx); } }),
+      'Allow OAuth sign-in'),
+    h('div', { class: 'form', style: { marginTop: '8px' } },
+      field('Authorization server', mode),
+      field('Public URL', publicUrl, 'The MCP URL as the client reaches it through your HTTPS reverse proxy or tunnel. Enter exactly this URL in the client. Empty = derived from the request.')),
+    builtinBox,
+    externalBox,
+    h('div', { class: 'row', style: { marginTop: '8px' } }, h('div', { class: 'spacer' }), h('button', { class: 'primary', onclick: async () => {
+      const v = publicUrl.value.trim();
+      if (v && !/^https:\/\/[^\s/]+(\/\S*)?\/mcp$/.test(v)) { toast('Public URL: use an https URL that ends with /mcp', { error: true }); return; }
+      const patch = { publicUrl: v, oauthMode: mode.value };
+      if (mode.value === 'external') {
+        if (!/^https:\/\//.test(issuer.value.trim()) && !/^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(issuer.value.trim())) { toast('Issuer: use an https URL', { error: true }); return; }
+        if (!audience.value.trim()) { toast('Enter the allowed client id(s) / audience', { error: true }); return; }
+        Object.assign(patch, { oauthIssuer: issuer.value.trim(), oauthAudience: audience.value.trim(), oauthGroupsClaim: groupsClaim.value.trim() || 'groups', oauthAllowedGroup: allowedGroup.value.trim(), oauthFullGroup: fullGroup.value.trim(), oauthScopes: scopes.value.trim() || 'openid profile email' });
+      }
+      await call('updateSettings', { mcp: patch }); reloadConfig(ctx); toast('Saved');
+    } }, 'Apply')),
+    h('p', { class: 'muted' }, 'claude.ai connects from Anthropic’s servers, so the public URL must be reachable from the internet over HTTPS. Serve it on its own host name; the proxy must pass /.well-known/ and /oauth/ as well as /mcp.'));
+}
+
+// Sign-in request from an OAuth client: the user decides here, the client's browser page waits.
+const oauthDialogs = new Map();
+export function oauthApproval(ctx, r) {
+  if (oauthDialogs.has(r.id)) return;
+  let readOnly = !/mcp:full/.test(r.scope || '');
+  const opt = (value, label) => h('label', { class: 'row', style: { color: 'var(--fg)' } },
+    h('input', { type: 'radio', name: 'oauth-access-' + r.id, checked: readOnly === value, onchange: () => { readOnly = value; } }), label);
+  const dlg = modal({
+    title: 'MCP sign-in request',
+    body: h('div', null,
+      h('p', null, h('b', null, r.clientName), ' wants to access this app’s MCP server.'),
+      h('table', { class: 'list' },
+        h('tr', null, h('td', null, 'Returns to'), h('td', { class: 'mono' }, r.redirectHost)),
+        h('tr', null, h('td', null, 'Client id'), h('td', { class: 'mono', style: { wordBreak: 'break-all' } }, r.clientId)),
+        h('tr', null, h('td', null, 'Request from'), h('td', { class: 'mono' }, r.remote || '–'))),
+      h('p', { class: 'muted' }, 'Approve only if you just started this sign-in yourself (e.g. adding a connector in claude.ai). The client sees the shared sessions and may use the tools allowed under Permissions.'),
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } },
+        opt(true, 'Read-only (list and read sessions)'),
+        opt(false, 'Full access (send prompts, open sessions, … as allowed under Permissions)'))),
+    okText: 'Approve',
+    cancelText: 'Deny',
+    onOk: () => { oauthDialogs.delete(r.id); return ctx.call('oauthDecide', r.id, { approve: true, readOnly }).then(() => toast(`Signed in: ${r.clientName}`)); },
+    onCancel: () => { if (oauthDialogs.delete(r.id)) ctx.call('oauthDecide', r.id, { approve: false }); },
+  });
+  oauthDialogs.set(r.id, dlg);
+}
+
+// Request expired or decided elsewhere: close its dialog without answering again.
+export function oauthDecided(ctx, id) {
+  const dlg = oauthDialogs.get(id);
+  if (!dlg) return;
+  oauthDialogs.delete(id);
+  dlg.close();
+  if (ctx.S.view === 'mcp') ctx.render();
 }
 
 function newToken(ctx, readOnly, after) {

@@ -606,6 +606,8 @@ on('hosts:status', (snap) => { S.hosts = snap; if (S.view === 'hosts') pages.ren
 on('forwards:status', (snap) => { S.forwards = snap; if (S.view === 'project') renderSoon(); });
 on('audit:entry', (e) => { S.audit.push(e); if (S.audit.length > 1000) S.audit.shift(); if (S.view === 'audit') pages.appendAudit(ctx, e); });
 on('mcp:status', (st) => { S.mcp = st; renderSoon(); });
+on('oauth:request', (r) => pages.oauthApproval(ctx, r));
+on('oauth:decided', ({ id }) => pages.oauthDecided(ctx, id));
 on('config:changed', (cfg) => {
   const structural = JSON.stringify(cfg.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory])) + JSON.stringify(cfg.hosts) !==
     JSON.stringify(S.config.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory])) + JSON.stringify(S.config.hosts);
@@ -634,6 +636,7 @@ export const ctx = { S, call, render, renderSoon, showView, openSession, selectS
   S.dataDir = st.dataDir;
   S.stdioBridge = st.stdioBridge;
   S.audit = await call('auditList');
+  for (const r of await call('oauthPending')) pages.oauthApproval(ctx, r);
   for (const info of st.sessions) {
     S.sessions.set(info.id, info);
     if (info.kind === 'terminal') {

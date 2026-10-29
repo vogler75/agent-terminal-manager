@@ -32,13 +32,15 @@ export function toast(text, { error = false, ms = 3500 } = {}) {
 }
 
 // Modal with body content and buttons. Returns {close}. onOk may return false to keep it open.
-export function modal({ title, body, okText = 'Save', onOk, cancelText = 'Cancel', width, extraButtons = [] }) {
+export function modal({ title, body, okText = 'Save', onOk, onCancel, cancelText = 'Cancel', width, extraButtons = [] }) {
   const root = document.getElementById('modal-root');
-  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey, true); };
+  let done = false;
+  // onCancel runs when the dialog closes any other way than OK (Cancel, Escape, close()).
+  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey, true); if (!done && onCancel) { done = true; onCancel(); } };
   const ok = async () => {
     try {
       const r = onOk ? await onOk() : true;
-      if (r !== false) close();
+      if (r !== false) { done = true; close(); }
     } catch (e) {
       toast(e.message || String(e), { error: true, ms: 6000 });
     }

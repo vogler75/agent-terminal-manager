@@ -77,7 +77,7 @@ Under **Hosts** you register your Linux development machines once (name, hostnam
 
 ## MCP server
 
-Streamable HTTP at `http://127.0.0.1:47900/mcp` (bind address and port configurable, can be turned on and off). Every request needs `Authorization: Bearer <token>`; tokens are created in the app (full or read-only), stored as hashes, and can be revoked and renewed.
+Streamable HTTP at `http://127.0.0.1:47900/mcp` (bind address and port configurable, can be turned on and off). Every request needs `Authorization: Bearer <token>`: either a token created in the app (full or read-only, stored as a hash, can be revoked and renewed) or an OAuth access token (see below).
 
 Tools:
 
@@ -106,7 +106,16 @@ claude mcp add --transport http atm http://127.0.0.1:47900/mcp --header "Authori
 
 Clients that only speak stdio use the bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_TOKEN=<token> node dist/atm-mcp-stdio.js [url]`).
 
-Access from outside (Claude app, web, voice mode): directly over the internet behind an Nginx reverse proxy with HTTPS, see [docs/nginx.conf](docs/nginx.conf).
+Access from outside: directly over the internet behind an Nginx reverse proxy (or a tunnel) with HTTPS, see [docs/nginx.conf](docs/nginx.conf).
+
+### OAuth sign-in (claude.ai and other web clients)
+
+claude.ai custom connectors sign in with OAuth 2.1; they cannot send a fixed `Authorization` header. Turn on **Allow OAuth sign-in** on the MCP page, set the **Public URL** (the HTTPS URL of `/mcp` behind your proxy, e.g. `https://atm.example.com/mcp`) and pick the authorization server:
+
+- **Built-in:** the app is its own authorization server — protected resource metadata (RFC 9728), authorization server metadata (RFC 8414), Dynamic Client Registration and Client ID Metadata Documents, authorization code with PKCE S256, refresh tokens with rotation. When a client signs in, the app shows a dialog with the client name and the site it returns to; you approve with read-only or full access, or deny. Approved sign-ins are listed on the MCP page and can be revoked.
+- **External identity provider** (authentik, Keycloak, Entra ID, …): the provider signs users in, the app only validates its JWT access tokens (signature via the provider's JWKS, issuer, expiry, and `aud`/`azp` must be one of the allowed client ids). A required group and a group with full access (claim configurable, default `groups`) control who gets in and who is read-only. **Test provider** checks discovery and keys and tells you whether clients can register automatically. authentik has no automatic client registration: create an OAuth2/OpenID provider with redirect URI `https://claude.ai/api/mcp/auth_callback` and enter its client id (and secret) under *Advanced settings* when adding the connector in claude.ai.
+
+In claude.ai: **Customize → Connectors → Add custom connector**, URL = the public URL. claude.ai connects from Anthropic's servers (`160.79.104.0/21`), so the public URL — and an external provider — must be reachable from the internet. Serve the app on its own host name; the proxy must pass `/.well-known/oauth-*` and `/oauth/` as well as `/mcp` (see the Nginx example).
 
 ## Coding agents: install, MCP servers and skills
 

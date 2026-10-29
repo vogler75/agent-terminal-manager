@@ -93,6 +93,12 @@ function setup() {
   forwards.on('changed', (snap) => send('forwards:status', snap));
   audit.on('entry', (e) => send('audit:entry', e));
   mcp.on('status', (st) => send('mcp:status', st));
+  mcp.oauth.on('request', (r) => {
+    send('oauth:request', r);
+    if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.flashFrame(true); }
+    notify('MCP sign-in request', `${r.clientName} wants access (redirects to ${r.redirectHost}). Approve or deny in the app.`);
+  });
+  mcp.oauth.on('decided', (id) => send('oauth:decided', { id }));
   mcp.on('project-created', () => send('config:changed', publicConfig()));
   orchestrators.on('changed', (list) => send('orch:list', list));
   orchestrators.on('messages', (m) => send('orch:messages', m));
@@ -105,7 +111,7 @@ function setup() {
 let activeSessionId = null;
 
 function publicConfig() {
-  const { tokens, mcpLibrary, ...rest } = store.data;
+  const { tokens, oauthClients, oauthGrants, mcpLibrary, ...rest } = store.data;
   // MCP secrets stay in the main process; the renderer only sees which keys exist.
   return { ...rest, mcpLibrary: mcpLibrary.map(({ secrets: s, ...e }) => ({ ...e, ...secretKeys(s) })) };
 }
@@ -219,9 +225,11 @@ const api = {
 
   // settings, import/export
   updateSettings: async (patch) => {
-    const prev = JSON.stringify(store.settings.mcp);
+    // Only listener changes need a restart; permissions and OAuth settings are read per request.
+    const listener = (m) => JSON.stringify([m.enabled, m.port, m.bind]);
+    const prev = listener(store.settings.mcp);
     const s = store.updateSettings(patch);
-    if (JSON.stringify(s.mcp) !== prev) await mcp.restart();
+    if (listener(s.mcp) !== prev) await mcp.restart();
     return s;
   },
   exportConfig: async () => {
@@ -250,6 +258,12 @@ const api = {
   revokeToken: (id) => mcp.revokeToken(id),
   deleteToken: (id) => mcp.deleteToken(id),
   listTokens: () => mcp.listTokens(),
+  oauthGrants: () => mcp.oauth.listGrants(),
+  oauthPending: () => mcp.oauth.listPending(),
+  oauthDecide: (id, decision) => mcp.oauth.decide(id, decision),
+  oauthRevoke: (id) => mcp.oauth.revokeGrant(id),
+  oauthDelete: (id) => mcp.oauth.deleteGrant(id),
+  oauthTestIssuer: (issuer) => mcp.oauth.testIssuer(issuer),
   auditList: () => audit.list(),
 
   // orchestrators
