@@ -10,7 +10,8 @@ const HIST = 40; // samples kept for sparklines (3 s apart = 2 minutes)
 
 const snaps = new Map(); // projectId -> snapshot
 const hist = new Map(); // projectId -> { cpu: [], mem: [], c: Map(containerId -> [cpu]) }
-const view = { sub: 'containers', filter: '', stopped: true }; // UI choices, kept across re-renders
+const SORT_DEFAULT = { containers: { key: 'state', dir: 1 }, images: { key: 'size', dir: -1 }, volumes: { key: 'size', dir: -1 } };
+const view = { sub: 'containers', filter: '', stopped: true, sort: loadSort() }; // UI choices, kept across re-renders
 let mounted = null; // { ctx, projectId, root }
 let pointerDown = false;
 let pendingDraw = false;
@@ -20,6 +21,39 @@ let lastClick = { set: null, index: -1 }; // for Shift+click ranges
 let selProject = null;
 const gone = new Map(); // removed id -> time; hidden until a newer list arrives
 const shown = (id, listAt) => !(gone.get(id) > listAt);
+
+// Sort order per list: { key, dir } (1 ascending, -1 descending); remembered in this browser profile.
+function loadSort() {
+  try { return { ...SORT_DEFAULT, ...JSON.parse(localStorage.getItem('dockerSort') || '{}') }; } catch { return { ...SORT_DEFAULT }; }
+}
+function saveSort() { try { localStorage.setItem('dockerSort', JSON.stringify(view.sort)); } catch {} }
+
+// Sorts rows by the column's value; empty values (null) go last in both directions, ties by name.
+function sortRows(list, listKey, values, nameOf) {
+  const { key, dir } = view.sort[listKey] || SORT_DEFAULT[listKey];
+  const val = values[key];
+  if (!val) return list;
+  const cmp = (x, y) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
+  return [...list].sort((a, b) => {
+    const x = val(a);
+    const y = val(b);
+    if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1;
+    return cmp(x, y) * dir || nameOf(a).localeCompare(nameOf(b));
+  });
+}
+
+// Column header; sortable when key is given. Text columns start ascending, numbers and dates descending.
+function sortTh(listKey, label, key, firstDir = 1) {
+  if (!key) return h('th', null, label);
+  const cur = view.sort[listKey] || SORT_DEFAULT[listKey];
+  const active = cur.key === key;
+  return h('th', {
+    class: 'dk-sortable' + (active ? ' sorted' : ''),
+    title: 'Sort by ' + label.toLowerCase(),
+    'aria-sort': active ? (cur.dir > 0 ? 'ascending' : 'descending') : 'none',
+    onclick: () => { view.sort[listKey] = active ? { key, dir: -cur.dir } : { key, dir: firstDir }; saveSort(); draw(); },
+  }, label, h('span', { class: 'dk-arrow' }, active ? (cur.dir > 0 ? ' ▲' : ' ▼') : ''));
+}
 
 const pct = (v) => (v == null ? '–' : v < 10 ? v.toFixed(1) + '%' : Math.round(v) + '%');
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
@@ -251,14 +285,25 @@ function selectionBar(p, snap, df) {
 function containersTable(ctx, p, snap, match) {
   const hh = hist.get(p.id) || { c: new Map() };
   const order = { running: 0, restarting: 1, paused: 2, created: 3, exited: 4, dead: 5 };
-  const list = snap.containers
-    .filter((c) => shown(c.id, snap.updatedAt) && (view.stopped || c.state === 'running') && match(c.name, c.image, c.compose, c.status, c.ports.join(' ')))
-    .sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || a.name.localeCompare(b.name));
+  const run = (c) => c.state === 'running';
+  const list = sortRows(snap.containers
+    .filter((c) => shown(c.id, snap.updatedAt) && (view.stopped || c.state === 'running') && match(c.name, c.image, c.compose, c.status, c.ports.join(' '))), 'containers', {
+    name: (c) => c.name,
+    image: (c) => c.image,
+    state: (c) => order[c.state] ?? 9,
+    cpu: (c) => (run(c) ? c.cpu ?? 0 : null),
+    mem: (c) => (run(c) ? c.mem ?? 0 : null),
+    net: (c) => (run(c) && c.net ? c.net.rx + c.net.tx : null),
+    created: (c) => c.created,
+  }, (c) => c.name);
   if (!list.length) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.containers.length ? 'No containers match.' : 'No containers on this host.');
   const keys = list.map((c) => c.id);
   const stateCls = (s) => (s === 'running' ? 'dk-run' : s === 'paused' || s === 'restarting' ? 'dk-warn' : s === 'dead' ? 'error' : 'exited');
   return h('table', { class: 'list dk-table' },
-    h('tr', null, selHeader(sel.containers, keys), ...['', 'Name', 'Status', 'Ports', 'CPU', 'Memory', 'Net I/O', ''].map((x) => h('th', null, x))),
+    h('tr', null, selHeader(sel.containers, keys), h('th', null, ''),
+      sortTh('containers', 'Name', 'name'), sortTh('containers', 'Status', 'state'), sortTh('containers', 'Ports'),
+      sortTh('containers', 'CPU', 'cpu', -1), sortTh('containers', 'Memory', 'mem', -1), sortTh('containers', 'Net I/O', 'net', -1),
+      sortTh('containers', 'Created', 'created', -1), h('th', null, '')),
     list.map((c, i) => {
       const run = c.state === 'running';
       const paused = c.state === 'paused';
@@ -285,6 +330,7 @@ function containersTable(ctx, p, snap, match) {
           h('div', { class: 'mono' }, fmtSize(c.mem), c.memLimit && c.memLimit < ((snap.info && snap.info.memTotal) || Infinity) ? h('span', { class: 'muted' }, ' / ' + fmtSize(c.memLimit)) : null),
           bar([{ value: c.mem, cls: level(c.mem / (c.memLimit || 1)) || 'mem' }], c.memLimit || c.mem)) : ''),
         h('td', { class: 'mono muted' }, run && c.net ? `↓${fmtSize(c.net.rx)} ↑${fmtSize(c.net.tx)}` : ''),
+        h('td', { class: 'muted dk-created', title: new Date(c.created).toLocaleString() }, timeAgo(c.created) + ' ago'),
         h('td', { class: 'dk-actions' },
           run || paused ? act('stop', '■', 'Stop') : act('start', '▶', 'Start'),
           act('restart', '↻', 'Restart'),
@@ -297,11 +343,19 @@ function containersTable(ctx, p, snap, match) {
 function imagesTable(p, df, snap, match) {
   if (!df) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.df && snap.df.error ? snap.df.error : 'Loading disk usage…');
   const used = new Set(snap.containers.map((c) => c.image));
-  const list = df.images.filter((im) => shown(im.id, snap.slowAt) && match(im.tags.join(' '), im.id)).sort((a, b) => b.size - a.size);
+  const list = sortRows(df.images.filter((im) => shown(im.id, snap.slowAt) && match(im.tags.join(' '), im.id)), 'images', {
+    name: (im) => im.tags[0] || '\uffff', // untagged last
+    id: (im) => im.id.replace(/^sha256:/, ''),
+    size: (im) => im.size,
+    containers: (im) => (im.containers < 0 ? null : im.containers),
+    created: (im) => im.created,
+  }, (im) => im.tags[0] || im.id);
   const keys = list.map((im) => im.id);
   const short = (id) => id.replace(/^sha256:/, '').slice(0, 12);
   return h('table', { class: 'list dk-table' },
-    h('tr', null, selHeader(sel.images, keys), ...['Image', 'ID', 'Size', 'Containers', 'Created', ''].map((x) => h('th', null, x))),
+    h('tr', null, selHeader(sel.images, keys),
+      sortTh('images', 'Image', 'name'), sortTh('images', 'ID', 'id'), sortTh('images', 'Size', 'size', -1),
+      sortTh('images', 'Containers', 'containers', -1), sortTh('images', 'Created', 'created', -1), h('th', null, '')),
     list.map((im, i) => {
       const b = busy.get(im.id);
       const item = { id: im.id, name: im.tags[0] || short(im.id), tags: im.tags, containers: im.containers };
@@ -311,7 +365,7 @@ function imagesTable(p, df, snap, match) {
         h('td', { class: 'mono muted' }, short(im.id)),
         h('td', { class: 'mono' }, b ? h('span', { class: 'warn' }, b + '…') : fmtSize(im.size)),
         h('td', null, im.containers > 0 ? im.containers : h('span', { class: 'muted' }, im.containers < 0 ? '?' : 'unused')),
-        h('td', { class: 'muted' }, timeAgo(im.created) + ' ago'),
+        h('td', { class: 'muted dk-created', title: new Date(im.created).toLocaleString() }, timeAgo(im.created) + ' ago'),
         h('td', { class: 'dk-actions' }, h('button', { class: 'icon', title: 'Remove image', 'aria-label': 'Remove', disabled: !!b, onclick: () => removeDialog(p, 'image', [item]) }, '✕')));
     }));
 }
@@ -319,11 +373,19 @@ function imagesTable(p, df, snap, match) {
 function volumesTable(p, df, snap, match) {
   if (!df) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, snap.df && snap.df.error ? snap.df.error : 'Loading disk usage…');
   const usedBy = (name) => snap.containers.filter((c) => c.mounts.some((m) => m.type === 'volume' && m.name === name));
-  const list = df.volumes.filter((v) => shown(v.name, snap.slowAt) && match(v.name, v.driver, v.mountpoint)).sort((a, b) => b.size - a.size);
+  const list = sortRows(df.volumes.filter((v) => shown(v.name, snap.slowAt) && match(v.name, v.driver, v.mountpoint)), 'volumes', {
+    name: (v) => v.name,
+    driver: (v) => v.driver,
+    size: (v) => (v.size < 0 ? null : v.size),
+    used: (v) => usedBy(v.name).length,
+    created: (v) => v.created || null,
+  }, (v) => v.name);
   if (!list.length) return h('div', { class: 'muted', style: { padding: '16px 8px' } }, 'No volumes.');
   const keys = list.map((v) => v.name);
   return h('table', { class: 'list dk-table' },
-    h('tr', null, selHeader(sel.volumes, keys), ...['Volume', 'Driver', 'Size', 'Used by', 'Mount point', ''].map((x) => h('th', null, x))),
+    h('tr', null, selHeader(sel.volumes, keys),
+      sortTh('volumes', 'Volume', 'name'), sortTh('volumes', 'Driver', 'driver'), sortTh('volumes', 'Size', 'size', -1),
+      sortTh('volumes', 'Used by', 'used', -1), sortTh('volumes', 'Created', 'created', -1), sortTh('volumes', 'Mount point'), h('th', null, '')),
     list.map((v, i) => {
       const cs = usedBy(v.name);
       const b = busy.get(v.name);
@@ -333,6 +395,7 @@ function volumesTable(p, df, snap, match) {
         h('td', { class: 'muted' }, v.driver),
         h('td', { class: 'mono' }, b ? h('span', { class: 'warn' }, b + '…') : v.size >= 0 ? fmtSize(v.size) : '?'),
         h('td', null, cs.length ? cs.map((c) => h('div', { class: c.state === 'running' ? '' : 'muted' }, c.name)) : h('span', { class: 'muted' }, 'unused')),
+        h('td', { class: 'muted dk-created', title: v.created ? new Date(v.created).toLocaleString() : '' }, v.created ? timeAgo(v.created) + ' ago' : ''),
         h('td', { class: 'mono muted dk-mount', title: v.mountpoint }, v.mountpoint),
         h('td', { class: 'dk-actions' }, h('button', { class: 'icon', title: 'Remove volume', 'aria-label': 'Remove', disabled: !!b, onclick: () => removeDialog(p, 'volume', [{ id: v.name, name: v.name }]) }, '✕')));
     }));

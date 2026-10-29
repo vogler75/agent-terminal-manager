@@ -318,7 +318,7 @@ class ProjectDocker {
     this.snap.df = df.error ? { error: df.error } : {
       layersSize: df.LayersSize || 0,
       images: (df.Images || []).map((im) => ({ id: im.Id, tags: (im.RepoTags || []).filter((t) => t !== '<none>:<none>'), size: im.Size, shared: im.SharedSize, containers: im.Containers, created: im.Created * 1000 })),
-      volumes: (df.Volumes || []).map((v) => ({ name: v.Name, driver: v.Driver, mountpoint: v.Mountpoint, size: v.UsageData ? v.UsageData.Size : -1, refs: v.UsageData ? v.UsageData.RefCount : -1, created: v.CreatedAt, labels: v.Labels || {} })),
+      volumes: (df.Volumes || []).map((v) => ({ name: v.Name, driver: v.Driver, mountpoint: v.Mountpoint, size: v.UsageData ? v.UsageData.Size : -1, refs: v.UsageData ? v.UsageData.RefCount : -1, created: Date.parse(v.CreatedAt) || 0, labels: v.Labels || {} })),
       containersSize: (df.Containers || []).reduce((a, x) => a + (x.SizeRw || 0), 0),
       buildCache: (df.BuildCache || []).reduce((a, x) => a + (x.Size || 0), 0),
     };

@@ -116,7 +116,8 @@ export function timeAgo(ts) {
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return s + ' s';
   if (s < 3600) return Math.round(s / 60) + ' min';
-  return Math.round(s / 3600) + ' h';
+  if (s < 48 * 3600) return Math.round(s / 3600) + ' h';
+  return Math.round(s / 86400) + ' d';
 }
 
 export function fmtTime(ts) {

@@ -163,7 +163,7 @@ function renderSidebar() {
     if (!collapsed) {
       if (dockerOn(p)) {
         node.appendChild(h('div', { class: 'sess dk-sess' + (selected && dockerActive(p) ? ' active' : ''), title: 'Docker containers, images and volumes', onclick: () => showDocker(p.id) },
-          h('span', { class: 'dk-whale', style: { fontSize: '11px', width: '9px' } }, '🐳'), h('span', { class: 'sess-name' }, 'Docker')));
+          h('span', { class: 'dk-sess-icon' }, '🐳'), h('span', { class: 'sess-name' }, 'Docker')));
       }
       for (const s of list) {
         const isActive = selected && activeSessionId(p.id) === s.id;

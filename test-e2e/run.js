@@ -523,6 +523,19 @@ const cfgBase = () => {
       for (const n of two) docker('run', '-d', '--name', n, 'alpine', 'sleep', '600');
       const rowOf = (n) => page.locator('.dk-table tr', { has: page.locator(`.dk-name:text-is("${n}")`) });
       for (const n of two) await rowOf(n).waitFor({ timeout: 20000 });
+      // Sorting: click a header for ascending, again for descending
+      const byName = (list) => [...list].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+      const shownNames = () => page.locator('.dk-table .dk-name').evaluateAll((els) => els.map((e) => e.firstChild.textContent));
+      const nameTh = page.locator('.dk-table th', { hasText: /^Name/ });
+      await nameTh.click();
+      assert.strictEqual(await nameTh.getAttribute('aria-sort'), 'ascending');
+      let order = await shownNames();
+      assert.deepStrictEqual(order, byName(order));
+      await nameTh.click();
+      assert.strictEqual(await nameTh.getAttribute('aria-sort'), 'descending');
+      order = await shownNames();
+      assert.deepStrictEqual(order, byName(order).reverse());
+      assert.ok(order.indexOf(two[1]) < order.indexOf(two[0]));
       for (const n of two) await rowOf(n).getByRole('checkbox').check();
       await page.locator('.dk-selbar.active b', { hasText: '2 selected' }).waitFor();
       await page.locator('.dk-selbar.active').getByRole('button', { name: '■ Stop' }).click();
@@ -542,6 +555,13 @@ const cfgBase = () => {
       await page.locator('.dk-head button', { hasText: '⟳' }).click(); // disk usage (images, volumes) refreshes once a minute otherwise
       const irow = page.locator('.dk-table tr', { has: page.locator(`td div:text-is("${img}")`) });
       await irow.waitFor({ timeout: 30000 });
+      const imageTh = page.locator('.dk-table th', { hasText: /^Image/ });
+      await imageTh.click();
+      assert.strictEqual(await imageTh.getAttribute('aria-sort'), 'ascending');
+      const tags = await page.locator('.dk-table tr td:nth-child(2)').evaluateAll((tds) => tds.map((td) => td.firstChild.textContent));
+      const tagged = tags.filter((t) => t !== '<none>');
+      assert.deepStrictEqual(tagged, byName(tagged));
+      assert.ok(tags.slice(tagged.length).every((t) => t === '<none>'), 'untagged images last');
       await irow.getByRole('button', { name: 'Remove' }).click();
       await page.locator('.modal').getByRole('button', { name: 'Remove', exact: true }).click();
       await waitFor(() => docker('image', 'inspect', img).status !== 0, { msg: 'image removed', timeout: 30000 });

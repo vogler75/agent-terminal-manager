@@ -312,3 +312,10 @@ th.dk-sel, td.dk-sel { width: 22px; padding-right: 0; }
 .dk-opt input { margin-top: 3px; }
 button.primary.danger-primary { background: #b62324; border-color: #b62324; }
 button.primary.danger-primary:hover { background: var(--red); }
+th.dk-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.dk-sortable:hover { color: var(--fg); }
+th.dk-sortable.sorted { color: var(--fg); }
+.dk-arrow { font-size: 9px; color: var(--accent); }
+td.dk-created { white-space: nowrap; }
+/* Same 9 px slot as the session status dots, starting at their left edge; the emoji is wider and draws into the gap. */
+.sess.dk-sess .dk-sess-icon { flex: 0 0 9px; min-width: 0; display: flex; justify-content: flex-start; font-size: 11px; line-height: 1; white-space: nowrap; overflow: visible; }
