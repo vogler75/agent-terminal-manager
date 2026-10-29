@@ -595,7 +595,10 @@ function buildMenu() {
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
 app.whenReady().then(async () => {
-  if (process.platform === 'win32') app.setAppUserModelId('com.vogler.termclaw');
+  // Windows takes the taskbar icon from the Start menu shortcut with the window's app ID, and Electron
+  // creates such a shortcut for notifications. Development and test runs (electron.exe from node_modules)
+  // get their own ID, so their shortcut cannot give the installed app the Electron icon.
+  if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'com.vogler.termclaw' : 'com.vogler.termclaw.dev');
   setup();
   buildMenu();
   createWindow();
