@@ -1,70 +1,47 @@
 # Agent Terminal Manager
 
-Desktop app (Windows and macOS) for managing many AI agents running in parallel across projects. Each project has one or more terminals (local, SSH, WSL) or agent sessions (OpenCode, controlled via its API). A built-in MCP server and OpenCode-based orchestrators control the sessions.
+Desktop app for Windows and macOS that keeps many AI coding agents running in parallel across projects and machines — in terminals (local, SSH, WSL, with tmux) or as structured agent sessions with a chat view (OpenCode, GitHub Copilot and other ACP agents). A built-in MCP server lets other agents (Claude Code, claude.ai, your own tools) see and drive the sessions, and orchestrators can coordinate them on their own.
 
-Stack: Electron, xterm.js, node-pty, `@modelcontextprotocol/sdk`, OpenCode (server mode, API v2).
+![Terminals of a project as tabs](docs/screenshots/terminal-tabs.png)
 
-## Run
+## Features
 
-```bash
-npm install
-npm start
-```
+- **Projects and sessions** — local PowerShell / shell, SSH and WSL terminals; one tmux session per terminal so agents keep running when the connection drops; auto-reconnect, keep-alive and port forwarding.
+- **Tabs, tiles and overview** — a project's sessions as tabs or 2/3/4/grid tiles; an overview of every running session in every project.
+- **Status and notifications** — working (yellow) / waiting (green) from output pauses or the terminal bell, exact status for agent sessions; desktop notification when an agent is done or waits for you.
+- **Agent sessions with a chat view** — OpenCode (server API) and any agent speaking the Agent Client Protocol: OpenCode, GitHub Copilot CLI or your own command. Markdown answers, compact tool calls, model and mode picker, slash commands, permission cards, approval level, live token usage.
+- **Files** — drop files onto a terminal to copy them into the shell's current directory on the remote machine; a file browser to download and upload.
+- **MCP server** — tools to list, read, prompt and wait for sessions, open sessions, run commands and create projects; app tokens for local clients, OAuth sign-in (built-in with approval in the app, or authentik / Keycloak / Entra ID) for claude.ai.
+- **Coding agents** — install Claude Code, Codex, OpenCode, Antigravity, Copilot, pi, Cursor and Qwen Code, and deploy MCP servers, skills (also from Git repositories) and APM packages to them, per project, on the project's machine.
+- **Orchestrators** — OpenCode-based coordinators that react when watched sessions finish (e.g. developer + reviewer loops), with round limits, pause and stop.
+- **Developer hosts** — a directory of your Linux machines with reachability and session counts; projects reference a host.
+- Saved commands per project, drag & drop ordering of projects and sessions, keyboard shortcuts, audit log of every MCP and orchestrator action, JSON export / import.
 
-On Windows, `build.bat` does all steps (installs dependencies if needed): `build.bat` builds the installer, portable exe and unpacked app, `build.bat dir` only the unpacked app, `build.bat test` runs the unit tests first.
+## Install
 
-Build packages (`release/`):
+Download the latest build from the GitHub **Releases** page of this repository:
 
-```bash
-npm run dist:win
-```
+- **Windows x64:** `Agent Terminal Manager Setup <version>.exe` (installer) or `Agent Terminal Manager <version>.exe` (portable). The builds are not code-signed; SmartScreen asks once (*More info → Run anyway*).
+- **macOS Apple silicon:** `.dmg` or `.zip`. Not notarized: after copying the app to Applications run `xattr -dr com.apple.quarantine "/Applications/Agent Terminal Manager.app"` once.
 
-```bash
-npm run dist:mac
-```
+Requirements on the machines you connect to: `ssh` with key authentication (your `~/.ssh/config` and ssh-agent are used), `tmux` for persistent sessions, and the agents you want to run.
 
-macOS packages must be built on a Mac; `.github/workflows/build.yml` builds both platforms in GitHub Actions (manual start).
+## Projects, sessions and views
 
-### Versions and releases
+![Tile view with two terminals and an agent session](docs/screenshots/tiles.png)
 
-The release number is in [`VERSION`](VERSION). Every build copies it into `package.json` (`node scripts/version.js`), so the app, the exe file version and the artifact names all use it. To publish a release:
+- **Left:** the project tree — projects with a status dot and their sessions. `+` opens the project's default session, `▦` toggles tiles, `⚙` edits the project. Drag projects and sessions to reorder them. Right-click for more: rename, share with MCP, mark as orchestrator, browse files, reconnect, close with or without killing the tmux session.
+- **Right:** the project's sessions as **tabs** or **tiles** (2 = side by side, 3 = three columns or one large + two small, 4 = 2×2, more = grid). Clicking a tile header returns to the single view.
+- **Overview:** all running sessions of all projects, grouped per project. Tiles shrink via the font size, so text stays sharp. Click a tile to open the session.
+- **Status:** *working* (output within the last *n* seconds) and *waiting* (no output for longer than the threshold — default 5 s, per project — or a bell character). Agent sessions report their status exactly. Switching to *waiting* sends a desktop notification; clicking it opens the session.
+- **Saved commands** per project appear as buttons above the terminal and run in the active session. **▶ All** starts all terminals configured for the project.
+- Sessions stay connected when you switch projects. Open sessions, view mode and tile layout are restored on restart; with tmux the app re-attaches to the sessions that kept running.
 
-```bash
-npm run set-version -- 0.2.0
-```
+![Overview of all sessions](docs/screenshots/overview.png)
 
-Commit `VERSION`, `package.json` and `package-lock.json` on `main`, then tag that commit and push the tag:
+The project editor sets the connection (local, SSH, WSL, or a developer host), start directory, tmux, auto-reconnect, status threshold, the default session and its type (terminal, OpenCode, OpenCode via ACP, Copilot via ACP, custom ACP agent), the terminals for **▶ All**, saved commands, port forwards and the coding agent setup.
 
-```bash
-git tag v0.2.0
-```
-
-```bash
-git push origin v0.2.0
-```
-
-The tag starts `.github/workflows/release.yml`: it checks that the tag is on `main` and matches `VERSION`, runs the unit tests, builds the Windows x64 installer and portable exe and the macOS Apple silicon dmg and zip, starts each packaged app once, and creates a GitHub release with the files. The builds are not code-signed (Windows SmartScreen asks once; on macOS remove the quarantine flag, see the release notes).
-
-Tests:
-
-```bash
-npm test
-```
-
-```bash
-npm run e2e
-```
-
-The E2E script drives the real app through Playwright. Environment variables enable additional parts: `ATM_E2E_SSH=user@host:port` (SSH target with key login and tmux), `ATM_E2E_WSL=Ubuntu`, `ATM_E2E_OPENCODE=1` (agent session and orchestrator; needs a working OpenCode model).
-
-## Usage
-
-- **Left:** the project tree — projects with a status dot and their sessions underneath. `+` opens a session with the project's default session, `▦` toggles the tile view, `⚙` edits the project. Right-click a project or session for more actions (rename, share with MCP, mark as orchestrator, reconnect, close with or without killing the tmux session).
-- **Right:** the project's sessions as tabs or tiles (2 = side by side, 3 = three columns or one large + two small, 4 = 2×2, more = grid). Clicking a tile header returns to the single view.
-- **Overview:** all running sessions of all projects, grouped in frames with project name and status dot. Tiles shrink via the xterm font size, so text stays sharp. Smaller tiles have fewer rows and columns; programs receive the new size and may re-wrap. Click a tile to open the session.
-- **Status:** working (yellow, output within the last *n* seconds) and waiting (green, no output for longer than the threshold — default 5 s, configurable per project — or a bell character). Switching to “waiting” triggers a desktop notification; clicking it opens the session.
-- **Saved commands** per project appear as buttons above the terminal and run in the active session.
-- Terminals stay connected when switching projects. Open sessions, view mode and tile layout are saved per project and restored on restart; with tmux the app re-attaches to the sessions that kept running.
+![Project editor](docs/screenshots/project-editor.png)
 
 ### Keyboard shortcuts
 
@@ -76,7 +53,7 @@ The E2E script drives the real app through Playwright. Environment variables ena
 | Ctrl/⌘ + Shift + G | tile view |
 | Ctrl/⌘ + Shift + O | overview |
 | Ctrl/⌘ + Shift + W | close session |
-| Ctrl/⌘ + Shift + C / V | copy / paste |
+| Ctrl/⌘ + Shift + C / V | copy / paste (Ctrl + C copies a selection, Ctrl + V pastes on Windows) |
 
 ## Connections
 
@@ -85,45 +62,53 @@ The E2E script drives the real app through Playwright. Environment variables ena
 | Local | PowerShell (Windows) or `$SHELL -l` (macOS) in the start directory |
 | SSH | `ssh -t [-p port] [-o ServerAliveInterval=30 -o ServerAliveCountMax=3] user@host '<script>'` — the script changes into the directory and attaches to (or creates) the tmux session `atm-<project>-<session>`, running the start command on creation. Without tmux: `cd <dir> && exec $SHELL -l`. |
 | WSL | `wsl.exe -d <distribution> --cd <path> [-- bash -lc '<tmux script>']` |
-| Agent (OpenCode) | starts `opencode serve` (locally directly, on SSH/WSL targets inside tmux) and talks to its HTTP API; SSH targets are reached via `ssh -L`. Status (working/done), prompts, answers and tool calls come structured from the API. |
+| OpenCode server | `opencode serve` (locally directly, on SSH/WSL targets inside tmux), reached over its HTTP API; SSH targets via `ssh -L`. |
+| ACP agent | the agent process (`opencode acp`, `copilot --acp`, …) with JSON-RPC over stdin/stdout — locally as a child process, on SSH/WSL through the same connection. |
 
-Authentication uses SSH keys, ssh-agent and your own `~/.ssh/config` only (host aliases work as hostnames). No passwords are stored; fields such as `password` are stripped on save and import.
+Authentication uses SSH keys, ssh-agent and your own `~/.ssh/config` only (host aliases work as hostnames). No passwords are stored; fields such as `password` are stripped on save and import. Port forwarding per SSH project (local port → remote port) runs as a separate `ssh -N -L …` process while at least one session of the project is running.
 
-Port forwarding per SSH project (local port → remote port) runs as a separate `ssh -N -L …` process while at least one session of the project is running.
+## Agent sessions
+
+![Agent session with Markdown answer, tool calls, model, mode, approvals and token usage](docs/screenshots/agent-chat.png)
+
+**+ Agent ▾** in the project header starts a structured agent session with a chat view:
+
+- **OpenCode (server API):** `opencode serve` over HTTP.
+- **OpenCode via ACP** (`opencode acp`), **GitHub Copilot via ACP** (`copilot --acp`), or any other **ACP agent** you enter as a command in the project editor.
+
+The chat shows streamed Markdown answers and compact tool calls. The status bar has the **model** picker, the agent's own options (e.g. *mode*), the **approval level** (*Ask* for every tool call, *Auto-approve reads*, or *Auto-approve all*; auto-answers are logged in the chat), live **token usage** (context window and tokens used, growing while the agent works) and **Login** (opens a terminal with `opencode auth login` or `copilot login`). Slash commands: `/model`, `/new`, `/stop`, `/login`, `/help` plus the agent's own commands, with autocomplete. When the agent asks for permission, a card with its options appears and the session counts as *waiting*. The conversation and model are restored after a restart (`session/load`).
+
+ACP agents are implemented in `src/main/acp.js`; another built-in agent is one entry in `ACP_AGENTS`. ACP sessions do not run in tmux, so a dropped SSH connection ends the agent process (Reconnect resumes the conversation).
 
 ## Files
 
+![File browser](docs/screenshots/file-browser.png)
+
 - **Drop files onto a terminal** (from the Explorer / Finder) to copy them to the project machine, into the directory the shell is in right now. Folders work too. If a name already exists you are asked before it is replaced. On a local terminal the file paths are typed in instead.
-- **Files** in the project header (or *Browse files…* in the session / project context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder (default: Downloads). **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
+- **Files** in the project header (or *Browse files…* in the context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder. **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
 
-SSH and WSL transfers run over `ssh` / `wsl.exe` with the same connection settings as the terminal (key authentication, `~/.ssh/config`): files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself if it reports it (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `ATM_SID` (sessions opened with this version); otherwise the project folder is used.
-
-## Developer hosts
-
-Under **Hosts** you register your Linux development machines once (name, hostname/IP, port, user, workspace folder, tags). Projects reference a host. The app checks reachability (TCP) every 30 s and counts sessions per host; “Check SSH” additionally counts the tmux sessions on the host.
+SSH and WSL transfers run over `ssh` / `wsl.exe` with the terminal's connection settings: files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `ATM_SID`; otherwise the project folder is used.
 
 ## MCP server
 
-Streamable HTTP at `http://127.0.0.1:47900/mcp` (bind address and port configurable, can be turned on and off). Every request needs `Authorization: Bearer <token>`: either a token created in the app (full or read-only, stored as a hash, can be revoked and renewed) or an OAuth access token (see below).
+![MCP server page with OAuth sign-in and tokens](docs/screenshots/mcp-server.png)
 
-Tools:
+Streamable HTTP at `http://127.0.0.1:47900/mcp` (bind address and port configurable, can be turned off). Every request needs `Authorization: Bearer <token>`: a token created in the app (full or read-only, stored as a hash, revocable and renewable) or an OAuth access token.
 
 | Tool | Purpose |
 |---|---|
-| `list_projects`, `list_sessions` | projects and sessions with status |
-| `send_to_session` | send text/a prompt to a session (with Enter) |
+| `list_projects`, `list_sessions` | projects and sessions with status and kind (agent or terminal) |
+| `send_to_session` | send a prompt / text to a session (with Enter) |
 | `read_output` | last N lines or output since a marker; agent sessions return messages |
-| `wait_until_idle` | blocks until “waiting” (with timeout) |
+| `wait_until_idle` | blocks until the session is waiting (with timeout) |
 | `wait_for_any_idle` | blocks until one of several sessions is done |
-| `open_session` | new session (default configuration, optionally an agent) |
+| `open_session` | open a session (default configuration, optionally an agent) |
 | `run_command` | run a saved command |
 | `list_hosts`, `find_free_host` | host directory, find a free host |
 | `create_directory` | create a directory in a host's workspace folder |
 | `create_project` | create a project on a host and open a session with a start command |
 
-Resources: `session://<project>/<name>/status`, subscribable (`notifications/resources/updated` on status change). Many clients don't wake the model on push notifications; the blocking wait tools are the reliable path.
-
-Permissions (MCP page): actions with side effects can be enabled individually. By default only shared sessions are visible; sessions marked as orchestrator are never a target. All MCP, orchestrator and external requests go to the **Audit log** and to `audit.log` in the data folder.
+Resources: `session://<project>/<name>/status`, subscribable. The server instructions tell clients to prefer agent sessions for delegating work and terminals for shell commands. Permissions on the MCP page enable actions with side effects individually; by default only sessions shared with MCP are visible, and orchestrator sessions are never a target. All MCP, orchestrator and external requests go to the **Audit log** and `audit.log`.
 
 Connect Claude Code:
 
@@ -133,60 +118,88 @@ claude mcp add --transport http atm http://127.0.0.1:47900/mcp --header "Authori
 
 Clients that only speak stdio use the bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_TOKEN=<token> node dist/atm-mcp-stdio.js [url]`).
 
-Access from outside: directly over the internet behind an Nginx reverse proxy (or a tunnel) with HTTPS, see [docs/nginx.conf](docs/nginx.conf).
-
 ### OAuth sign-in (claude.ai and other web clients)
 
-claude.ai custom connectors sign in with OAuth 2.1; they cannot send a fixed `Authorization` header. Turn on **Allow OAuth sign-in** on the MCP page, set the **Public URL** (the HTTPS URL of `/mcp` behind your proxy, e.g. `https://atm.example.com/mcp`) and pick the authorization server:
+![Approval of a claude.ai sign-in in the app](docs/screenshots/oauth-approval.png)
 
-- **Built-in:** the app is its own authorization server — protected resource metadata (RFC 9728), authorization server metadata (RFC 8414), Dynamic Client Registration and Client ID Metadata Documents, authorization code with PKCE S256, refresh tokens with rotation. When a client signs in, the app shows a dialog with the client name and the site it returns to; you approve with read-only or full access, or deny. Approved sign-ins are listed on the MCP page and can be revoked.
-- **External identity provider** (authentik, Keycloak, Entra ID, …): the provider signs users in, the app only validates its JWT access tokens (signature via the provider's JWKS, issuer, expiry, and `aud`/`azp` must be one of the allowed client ids). A required group and a group with full access (claim configurable, default `groups`) control who gets in and who is read-only. **Test provider** checks discovery and keys and tells you whether clients can register automatically. authentik has no automatic client registration: create an OAuth2/OpenID provider with redirect URI `https://claude.ai/api/mcp/auth_callback` and enter its client id (and secret) under *Advanced settings* when adding the connector in claude.ai.
+claude.ai connectors sign in with OAuth 2.1 and cannot send a fixed `Authorization` header. Turn on **Allow OAuth sign-in** on the MCP page, set the **Public URL** (the HTTPS URL of `/mcp` behind your reverse proxy or tunnel, e.g. `https://atm.example.com/mcp`) and pick the authorization server:
 
-In claude.ai: **Customize → Connectors → Add custom connector**, URL = the public URL. claude.ai connects from Anthropic's servers (`160.79.104.0/21`), so the public URL — and an external provider — must be reachable from the internet. Serve the app on its own host name; the proxy must pass `/.well-known/oauth-*` and `/oauth/` as well as `/mcp` (see the Nginx example).
+- **Built-in:** the app is its own authorization server (RFC 9728 / RFC 8414 metadata, Client ID Metadata Documents and Dynamic Client Registration, PKCE S256, rotating refresh tokens). When a client signs in, the app shows who wants access and where it returns to; you approve with read-only or full access, or deny. Approved sign-ins are listed and can be revoked. In claude.ai choose *Use Claude's published identity*.
+- **External identity provider** (authentik, Keycloak, Entra ID, …): the provider signs users in, the app validates its JWT access tokens (JWKS signature, issuer, expiry, `aud`/`azp` among the allowed client ids) and maps a group claim to access (required group, group with full access). **Test provider** checks discovery and keys. Providers without automatic client registration (e.g. authentik): create an OAuth2/OpenID application with redirect URI `https://claude.ai/api/mcp/auth_callback` and enter its client id under *Advanced settings* in claude.ai.
 
-## Coding agents: install, MCP servers and skills
+In claude.ai: **Customize → Connectors → Add custom connector** with the public URL. claude.ai connects from Anthropic's servers (`160.79.104.0/21`), so the public URL (and an external provider) must be reachable from the internet. The proxy must pass `/mcp`, `/oauth/` and `/.well-known/oauth-*`; [docs/nginx.conf](docs/nginx.conf) has examples for a dedicated host name and for a path prefix.
 
-**Agents ▾** in the project header installs coding agents and deploys MCP servers and skills to them. Supported: Claude Code, Codex CLI, OpenCode, Antigravity CLI (agy), GitHub Copilot CLI, pi, Cursor CLI and Qwen Code.
+## Coding agents: install, MCP servers, skills and APM
+
+![Agents menu of a project](docs/screenshots/agents-menu.png)
+
+**Agents ▾** in the project header installs coding agents and deploys MCP servers, skills and APM packages to them. Supported agents: Claude Code, Codex CLI, OpenCode, Antigravity CLI (agy), GitHub Copilot CLI, pi, Cursor CLI and Qwen Code.
 
 - **Install** types the agent's official install command into the active terminal (PowerShell variant for local Windows projects, shell variant for macOS/Linux, SSH and WSL), so you see the output and can answer prompts.
-- **Library** (sidebar): MCP servers (stdio command or HTTP URL; env vars and headers are stored encrypted with the OS keychain) and a skills folder with one sub-folder per skill (`<name>/SKILL.md` + files).
-- **Git sources for skills** (Library → Skills): repositories (https or ssh URL, optional branch/tag and sub-folder) that the app downloads with your local git into the skills folder (`.sources/<name>`). Every folder with a `SKILL.md` becomes a skill, shown with its source and deployed like your own skills; the target machines need no Git access. **Update** fetches the newest commit; **Agents ▾ → Update skills from Git and deploy** updates the project's sources and deploys in one step. A skill name that is already taken is marked as a conflict and not deployed.
-- **Project editor → Coding agents:** choose the MCP servers and skills for the project, the target agents (all installed, or a selection) and the scope: the project folder (recommended) or the user's home directory.
-- **Deploy MCP & skills (update)** detects the installed agents on the project's machine and writes each agent's own config format (for example `.mcp.json` and `.claude/skills` for Claude Code, `opencode.json` for OpenCode, `~/.codex/config.toml` for Codex). Entries you added yourself are never changed; servers and skills you deselect are removed on the next deploy. What was deployed is recorded in `.agent-terminal-manager/deployed.json`. Run it again after changing the library or pulling the skills repository.
+- **Library** (sidebar): MCP servers (stdio command or HTTP URL; env vars and headers are encrypted with the OS keychain), your skills folder (`<name>/SKILL.md` + files), Git sources for skills and APM packages.
+- **Project editor → Coding agents:** pick MCP servers, skills and APM packages for the project, the target agents (all installed, or a selection) and the scope (project folder or home directory).
+- **Deploy MCP & skills (update)** detects the installed agents on the project's machine and writes each agent's own config format (e.g. `.mcp.json` and `.claude/skills` for Claude Code, `opencode.json` for OpenCode, `~/.codex/config.toml` for Codex). Your own entries are never changed; deselected servers and skills are removed on the next deploy. What was deployed is recorded in `.agent-terminal-manager/deployed.json`.
 
-Codex and Copilot read MCP servers only from the home directory; use the user scope for them (their skills work in both scopes). Every agent is one adapter in `src/main/coding-agents/registry.js` on top of a shared interface (`base.js`); the runner (`deploy.js`) does one read and one write pass over PowerShell or `sh`, with the script sent via stdin.
+![Library with MCP servers, skills and APM packages](docs/screenshots/library.png)
 
-### APM packages (Agent Package Manager)
+**Skills from Git:** Git sources (https or ssh URL, or GitHub shorthand `owner/repo[/path][#ref]`, optional branch/tag and sub-folder) are downloaded with your local git into the skills folder. Every folder with a `SKILL.md` becomes a skill and is deployed like your own; the target machines need no Git access. **Agents ▾ → Update skills from Git and deploy** does both in one step. Name conflicts are marked and not deployed.
 
-[APM](https://github.com/microsoft/apm) installs packages of skills, prompts, instructions, agents and MCP servers from Git repositories into each agent's own folders (`.claude/`, `.github/`, `.agents/`, …) and pins the exact versions in `apm.lock.yaml`.
+**APM packages** ([Agent Package Manager](https://github.com/microsoft/apm)): references such as `microsoft/apm-sample-package`, `owner/repo/path#v1.2`, `plugin@marketplace` or a Git URL. Two ways to use one: **Download skills** fetches the package with the app and adds its skills to the library; or select the package in a project, and Deploy installs it with APM on the project machine (uninstalls deselected packages, `--target` set to the agents found). **Agents ▾** also checks for and installs package updates, lists installed packages and installs or updates APM itself.
 
-- **Library → APM packages:** references such as `microsoft/apm-sample-package`, `owner/repo/path#v1.2` (tag or commit), `plugin@marketplace` or a Git URL. Only shell-safe references are accepted.
-- **Project editor → Coding agents → APM packages:** select packages per project. Project scope installs into the project folder (`apm.yml`, `apm.lock.yaml`, `apm_modules/`), user scope uses `apm -g` (`~/.apm/`).
-- **Deploy MCP & skills (update)** runs APM on the project's machine: deselected packages are uninstalled (their files are removed), all selected packages are installed with `--target` set to the agents found there (Claude Code, Copilot, Codex, OpenCode, Cursor, Antigravity). The report shows APM's output.
-- **Agents ▾:** *APM: check for package updates* (`apm outdated`), *APM: update packages* (`apm update --yes`, newer versions within the references, lockfile updated), *APM: list installed packages*, *Install APM* and *Update APM itself* (`apm self-update`).
+Codex and Copilot read MCP servers only from the home directory; use the user scope for them. Every agent is one adapter in `src/main/coding-agents/registry.js` on a shared interface (`base.js`); the runner (`deploy.js`) does one read and one write pass over PowerShell or `sh`.
 
-## Agent sessions via ACP (Agent Client Protocol)
+## Orchestrators
 
-**+ Agent ▾** in the project header starts structured agent sessions with a chat view:
+Under **Orchestrators** you create coordinators, each with a name, system prompt (templates *Developer + reviewer*, *Watch*), model, maximum rounds and the watched sessions. On start the app launches its own `opencode serve`, registers the app's MCP server with a token limited to those sessions, and creates an OpenCode session with the system prompt. When a watched session finishes, the event and its latest output go to the orchestrator as a message (queued if it is busy). Brakes: maximum rounds, pause, interrupt, stop. A session can only belong to one orchestrator.
 
-- **OpenCode (server API):** `opencode serve` over HTTP (see Connections).
-- **OpenCode via ACP** (`opencode acp`) and **GitHub Copilot via ACP** (`copilot --acp`): the agent runs as a process and talks JSON-RPC over stdin/stdout. Locally it is a child process; on SSH and WSL projects it runs through the same connection (binary found with the user's PATH).
+## Developer hosts
 
-ACP sessions share the chat view and tools with the OpenCode server sessions: streamed answers and tool calls, the model picker, slash commands (`/model`, `/new`, `/stop`, `/login`, `/help` plus the agent's own commands), MCP tools (`send_to_session`, `read_output`, `wait_until_idle`) and orchestrators. When the agent asks for permission before a tool call, a card with its options appears in the chat and the session counts as *waiting* (desktop notification). The conversation and the chosen model are restored after a restart (`session/load`). **Login** opens a terminal with `opencode auth login` or `copilot login`.
-
-The implementation is in `src/main/acp.js`; another ACP agent is one entry in `ACP_AGENTS`. ACP sessions do not run in tmux, so a dropped SSH connection ends the agent process (the conversation can be resumed with Reconnect).
-
-## Orchestrators (OpenCode)
-
-Under **Orchestrators** you can create several orchestrators, each with a name, system prompt (templates “Developer + reviewer”, “Watch”), model (`provider/model`, empty = OpenCode default), maximum rounds and the watched sessions picked by checkbox. On start the app launches its own `opencode serve`, registers the app's MCP server with a token valid only for those sessions, and creates an OpenCode session with the system prompt.
-
-When a watched session finishes, the app sends the event with the latest output as a new message to the orchestrator (`[ATM event] …`); if it is busy, the event is queued. The view shows history, current action and rounds, and has an input field. Brakes: maximum rounds (then pause), pause, interrupt, stop. A session can only be controlled by one orchestrator; conflicts are rejected on save and shown.
-
-The OpenCode program is detected automatically (on Windows including the platform binary inside the npm package); the path can be set in Settings.
+Under **Hosts** you register your development machines once (name, hostname, port, user, workspace folder, tags). Projects reference a host. The app checks reachability every 30 s and counts sessions per host; *Check SSH* also counts the tmux sessions there. MCP clients can find a free host and create projects on it.
 
 ## Data
 
-`config.json`, `audit.log` and orchestrator working folders live in the app data folder (Settings → Open data folder). Export/import as JSON via Settings or the File menu; tokens are not exported.
+`config.json`, `audit.log` and orchestrator working folders live in the app data folder (Settings → Open data folder). Export / import as JSON via Settings or the File menu; tokens and OAuth grants are not exported.
+
+## Development
+
+```bash
+npm install
+npm start
+```
+
+On Windows, `build.bat` does all steps: `build.bat` builds the installer, portable exe and unpacked app, `build.bat dir` only the unpacked app (`release\win-unpacked`), `build.bat test` runs the unit tests first. Packages for one platform: `npm run dist:win` or `npm run dist:mac` (macOS packages must be built on a Mac).
+
+Tests:
+
+```bash
+npm test
+```
+
+```bash
+npm run e2e
+```
+
+The E2E script drives the real app through Playwright. Environment variables enable additional parts: `ATM_E2E_SSH=user@host:port` (SSH target with key login and tmux), `ATM_E2E_WSL=Ubuntu`, `ATM_E2E_OPENCODE=1` (agent sessions and orchestrators; needs a working OpenCode model), `ATM_E2E_COPILOT=1`, `ATM_E2E_APM=1`.
+
+Screenshots for this README are taken from the real app with a demo setup:
+
+```bash
+npm run build:renderer && node scripts/screenshots/take.js
+```
+
+Stack: Electron, xterm.js, node-pty, `@modelcontextprotocol/sdk`, OpenCode (server API), Agent Client Protocol.
+
+### Versions and releases
+
+The release number is in [`version.txt`](version.txt). Every build copies it into `package.json`, so the app, the exe file version and the file names use it. To publish a release, edit `version.txt` (e.g. `0.3.0`) and run:
+
+```powershell
+.\release.ps1
+```
+
+The script checks that you are on an up-to-date `main` with no other uncommitted changes and that the tag does not exist yet, writes the version into `package.json`, runs the unit tests, commits, asks for confirmation, pushes `main` and the tag `v<version>`. `-DryRun` only shows what it would do.
+
+The tag starts `.github/workflows/release.yml`: it checks that the tag is on `main` and matches `version.txt`, builds the Windows x64 installer and portable exe and the macOS Apple silicon dmg and zip, starts each packaged app once, and creates the GitHub release. `.github/workflows/build.yml` (manual start) runs the full test suite on Windows and macOS.
 
 ## License
 

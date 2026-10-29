@@ -52,7 +52,7 @@ Write-Host "Release $tag" -ForegroundColor Cyan
 $branch = GitOut @('rev-parse', '--abbrev-ref', 'HEAD')
 if ($branch -ne 'main') { Fail "releases are made from main (current branch: $branch)" }
 
-Run git @('fetch', '--quiet', '--tags', 'origin')
+Run git @('fetch', '--quiet', 'origin')
 $behind = GitOut @('rev-list', '--count', 'HEAD..origin/main')
 if ([int]$behind -gt 0) { Fail "main is $behind commit(s) behind origin/main - pull first" }
 
