@@ -12,6 +12,7 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 - **Agent sessions with a chat view** — OpenCode (server API) and any agent speaking the Agent Client Protocol: OpenCode, GitHub Copilot CLI or your own command. Markdown answers, compact tool calls, model and mode picker, slash commands, permission cards, approval level, live token usage.
 - **Files** — drop files onto a terminal to copy them into the shell's current directory on the remote machine; a file browser to download and upload.
 - **Docker** — a lightweight Portainer per project: dashboard with containers, CPU, memory and disk, live stats, start / stop / restart / pause / kill / remove (also for a selection), logs, a shell in a container, images and volumes with removal and cleanup — over the project's own SSH / WSL connection, without opening a port.
+- **Monitor** — a host monitor for Linux machines (SSH, WSL, local Linux): CPU with per-core load, memory and swap, disk and network I/O, disk usage per mount point and the running programs, with live charts.
 - **MCP server** — tools to list, read, prompt and wait for sessions, open sessions, run commands and create projects; app tokens for local clients, OAuth sign-in (built-in with approval in the app, or authentik / Keycloak / Entra ID) for claude.ai.
 - **Coding agents** — install Claude Code, Codex, OpenCode, Antigravity, Copilot, pi, Cursor and Qwen Code, and deploy MCP servers, skills (also from Git repositories) and APM packages to them, per project, on the project's machine.
 - **Orchestrators** — OpenCode-based coordinators that react when watched sessions finish (e.g. developer + reviewer loops), with round limits, pause and stop.
@@ -100,6 +101,18 @@ ACP agents are implemented in `src/main/acp.js`; another built-in agent is one e
 - **Files** in the project header (or *Browse files…* in the context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder. **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
 
 SSH and WSL transfers run over `ssh` / `wsl.exe` with the terminal's connection settings: files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `TERMCLAW_SID`; otherwise the project folder is used.
+
+## Monitor
+
+Turn on **Monitor** in the project editor and the project gets a **Monitor** tab (sidebar and project header) for the machine behind the project — an SSH host, a WSL distribution or this computer when it runs Linux:
+
+- **Cards** — CPU (user / system / iowait, per-core bars), memory with cache and swap, disk I/O and network I/O, each with a two-minute chart.
+- **Basic information** — host name, system, kernel, architecture, CPU model, uptime, load average, number of processes.
+- **Disk usage** — size, used and free per volume and mount point (pseudo file systems are hidden; *show all mounts* adds boot, snap and container mounts).
+- **Disk I/O** — read / write throughput, IOPS and busy time per block device. **Network I/O** — throughput and totals per interface.
+- **Programs** — the busiest processes with CPU, memory, threads and command line; sortable and filterable by command, user or PID.
+
+How it works: one process on the machine prints a sample of `/proc` every 2 seconds over the project's connection (`ssh … sh -c`, `wsl.exe --exec bash`), and TermClaw computes the rates from consecutive samples. Nothing is installed on the machine and no port is opened; the process stops 15 seconds after you leave the tab.
 
 ## Docker
 

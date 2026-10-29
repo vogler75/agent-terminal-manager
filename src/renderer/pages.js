@@ -72,6 +72,7 @@ export async function editProject(ctx, p) {
   const x11Hint = h('div', { class: 'hint' });
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
   const dockerEnabled = h('input', { type: 'checkbox', checked: p.docker && p.docker.enabled });
+  const monitorEnabled = h('input', { type: 'checkbox', checked: p.monitor && p.monitor.enabled });
   const dockerCmd = h('input', { value: (p.docker && p.docker.command) || '', placeholder: 'docker', style: { width: '160px' } });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
@@ -137,6 +138,8 @@ export async function editProject(ctx, p) {
     field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
     field('Docker', h('div', { class: 'row' }, h('label', { class: 'row' }, dockerEnabled, 'Docker tab: containers, logs, shell, images, volumes'), h('span', { class: 'muted' }, 'CLI'), dockerCmd),
       'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.'),
+    field('Monitor', h('label', { class: 'row' }, monitorEnabled, 'Monitor tab: CPU, memory, disk and network I/O, disk usage per mount, programs'),
+      'For Linux machines (SSH, WSL or local Linux). Reads /proc over one connection while the tab is open; nothing is installed on the machine.'),
     field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
     h('h3', { class: 'full' }, 'Default session (plus button)'),
     field('Name', dsName),
@@ -197,6 +200,7 @@ export async function editProject(ctx, p) {
         x11Display: x11Display.value.trim(),
         autoReconnect: auto.checked,
         docker: { enabled: dockerEnabled.checked, command: dockerCmd.value.trim() },
+        monitor: { enabled: monitorEnabled.checked },
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
         ...(() => {

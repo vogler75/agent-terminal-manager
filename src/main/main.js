@@ -9,6 +9,7 @@ const { AcpSession, ACP_AGENTS } = require('./acp');
 const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
 const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
+const { MonitorManager } = require('./monitor');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
@@ -39,7 +40,7 @@ if (!process.env.TERMCLAW_USER_DATA && !app.requestSingleInstanceLock()) {
 }
 
 let win = null;
-let store, sessions, hosts, forwards, docker, audit, mcp, orchestrators;
+let store, sessions, hosts, forwards, docker, monitor, audit, mcp, orchestrators;
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send('event', { channel, payload });
@@ -82,6 +83,7 @@ function setup() {
   hosts = new HostMonitor(store, sessions);
   forwards = new ForwardManager(store, sessions);
   docker = new DockerManager(store);
+  monitor = new MonitorManager(store);
   mcp = new McpService({ store, sessions, hosts, audit });
   orchestrators = new OrchestratorManager({ store, sessions, mcp, audit, dataDir, notify: (t, b) => notify(t, b) });
 
@@ -108,6 +110,7 @@ function setup() {
   forwards.on('changed', (snap) => send('forwards:status', snap));
   docker.on('update', (projectId, snap) => send('docker:update', { projectId, snap }));
   docker.on('logs', (e) => send('docker:logs', e));
+  monitor.on('update', (projectId, snap) => send('monitor:update', { projectId, snap }));
   audit.on('entry', (e) => send('audit:entry', e));
   mcp.on('status', (st) => send('mcp:status', st));
   mcp.oauth.on('request', (r) => {
@@ -122,7 +125,7 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, docker, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
+  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, docker, monitor, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
 }
 
 let activeSessionId = null;
@@ -186,13 +189,21 @@ const api = {
     if (before && JSON.stringify(before.forwards) !== JSON.stringify(saved.forwards)) forwards.restart(saved.id);
     const conn = (x) => JSON.stringify([x.type, x.hostId, x.host, x.user, x.port, x.wslDistro, x.docker]);
     if (before && conn(before) !== conn(saved)) docker.reset(saved.id);
+    const mconn = (x) => JSON.stringify([x.type, x.hostId, x.host, x.user, x.port, x.wslDistro, x.monitor]);
+    if (before && mconn(before) !== mconn(saved)) monitor.reset(saved.id);
     return saved;
   },
   deleteProject: (id) => {
     for (const s of sessions.list(id)) sessions.close(s.id);
     docker.reset(id);
+    monitor.reset(id);
     store.deleteProject(id);
   },
+
+  // Monitor tab: the sampling process runs while the tab is visible.
+  monitorWatch: (projectId) => monitor.watch(projectId),
+  monitorUnwatch: (projectId) => monitor.unwatch(projectId),
+  monitorRefresh: (projectId) => monitor.refresh(projectId),
 
   // Docker tab: polling runs while the tab is visible.
   dockerWatch: (projectId) => docker.watch(projectId),
@@ -616,6 +627,7 @@ app.on('before-quit', () => {
   try { orchestrators.shutdown(); } catch {}
   try { forwards.shutdown(); } catch {}
   try { docker.shutdown(); } catch {}
+  try { monitor.shutdown(); } catch {}
   try { hosts.stop(); } catch {}
   try { sessions.shutdown(); } catch {}
   try { mcp.stop(); } catch {}
