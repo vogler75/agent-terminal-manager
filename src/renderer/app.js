@@ -60,10 +60,26 @@ function projectStatus(pid) {
 const STATUS_LABEL = { working: 'working', waiting: 'waiting', starting: 'starting', error: 'error', exited: 'exited', none: 'no sessions' };
 const dot = (status, attrs = {}) => h('span', { class: 'dot ' + status, title: STATUS_LABEL[status] || status, ...attrs });
 
+// Font zoom per session, kept by project and session name so it survives restarts and reopening.
+const zoomKey = (id) => { const s = S.sessions.get(id); return s ? s.projectId + '/' + s.name : id; };
+function loadZooms() { try { return JSON.parse(localStorage.getItem('termZoom') || '{}'); } catch { return {}; } }
+function saveZoom(id, zoom) {
+  const all = loadZooms();
+  if (zoom) all[zoomKey(id)] = zoom; else delete all[zoomKey(id)];
+  try { localStorage.setItem('termZoom', JSON.stringify(all)); } catch {}
+}
+
+// The terminal a zoom shortcut applies to: the focused one, else the active session.
+function zoomTarget() {
+  const el = document.activeElement && document.activeElement.closest && document.activeElement.closest('.termwrap');
+  const id = el ? el.dataset.sid : S.view === 'project' ? activeSessionId() : null;
+  return id && terms.get(id) && terms.get(id).el.isConnected ? terms.get(id) : null;
+}
+
 function termFor(id) {
   let t = terms.get(id);
   if (!t) {
-    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, onKey: handleShortcut, onDropFiles: (sid, paths) => files.dropOnTerminal(ctx, sid, paths), isMac: isMac() });
+    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, zoom: loadZooms()[zoomKey(id)] || 0, onZoom: saveZoom, onKey: handleShortcut, onDropFiles: (sid, paths) => files.dropOnTerminal(ctx, sid, paths), isMac: isMac() });
     terms.set(id, t);
   }
   return t;
@@ -281,6 +297,10 @@ function sessionMenu(e, s) {
     { label: s.orchestrator ? '✓ Orchestrator session' : 'Mark as orchestrator', action: () => call('setSessionFlags', s.id, { orchestrator: !s.orchestrator }) },
     { label: 'Reconnect', action: () => call('reconnect', s.id) },
     { label: 'Browse files…', action: () => browseFrom(s) },
+    ...(s.kind === 'terminal' ? ['-',
+      { label: 'Larger font  (Ctrl +)', action: () => termFor(s.id).zoomBy(1) },
+      { label: 'Smaller font  (Ctrl −)', action: () => termFor(s.id).zoomBy(-1) },
+      { label: 'Reset font size  (Ctrl 0)', action: () => termFor(s.id).zoomBy(0) }] : []),
     '-',
     { label: 'Close (tmux keeps running)', action: () => closeSession(s.id, false) },
     { label: 'Close and kill tmux session', action: () => closeSession(s.id, true) },
@@ -568,6 +588,13 @@ function handleShortcut(e) {
   const mod = isMac() ? e.metaKey : e.ctrlKey;
   if (!mod) return false;
   const p = project(S.projectId);
+  // Font size of the terminal: Ctrl + / Ctrl - / Ctrl 0 (main keyboard or numpad, any layout).
+  if (!e.altKey) {
+    const z = e.key === '+' || e.key === '=' || e.code === 'NumpadAdd' ? 1
+      : e.key === '-' || e.code === 'NumpadSubtract' ? -1
+      : (e.code === 'Digit0' || e.code === 'Numpad0') && !e.shiftKey ? 0 : null;
+    if (z !== null) { const t = zoomTarget(); if (t) { t.zoomBy(z); return true; } }
+  }
   if (e.shiftKey && e.code === 'KeyT') { if (p) openSession(p.id); return true; }
   if (e.shiftKey && e.code === 'KeyG') { if (p) { S.view = 'project'; setMode(p, mode(p) === 'tiles' ? 'tabs' : 'tiles'); } return true; }
   if (e.shiftKey && e.code === 'KeyO') { showView(S.view === 'overview' ? 'project' : 'overview'); return true; }

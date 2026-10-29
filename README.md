@@ -56,6 +56,7 @@ The project editor sets the connection (local, SSH, WSL, or a developer host), s
 | Ctrl/⌘ + Shift + G | tile view |
 | Ctrl/⌘ + Shift + O | overview |
 | Ctrl/⌘ + Shift + W | close session |
+| Ctrl/⌘ + Plus / Minus / 0 | larger / smaller / reset font of the terminal (also Ctrl/⌘ + mouse wheel and the session context menu; kept per session) |
 | Ctrl/⌘ + Shift + C / V | copy / paste (Ctrl + C copies a selection, Ctrl + V pastes on Windows) |
 
 ## Connections

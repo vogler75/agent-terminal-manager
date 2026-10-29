@@ -96,6 +96,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .termwrap { position: absolute; inset: 0; padding: 4px 2px 2px 6px; background: var(--bg); }
 .termwrap .xterm { height: 100%; }
 .termwrap .xterm-viewport { scrollbar-width: thin; }
+.term-zoom { position: absolute; top: 8px; right: 14px; z-index: 5; padding: 3px 8px; border-radius: 4px; background: rgba(20,22,27,.88); border: 1px solid var(--border, #333); color: var(--fg2, #aaa); font-size: 12px; pointer-events: none; }
 .overlay-err { position: absolute; right: 16px; bottom: 16px; z-index: 10; background: var(--bg3); border: 1px solid var(--red); border-radius: var(--radius); padding: 10px 12px; max-width: 420px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 .overlay-err .msg { color: var(--fg); margin-bottom: 8px; }
 .single { position: absolute; inset: 0; }
