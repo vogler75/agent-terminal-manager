@@ -13,6 +13,7 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 - **Files** — drop files onto a terminal to copy them into the shell's current directory on the remote machine; a file browser to download and upload.
 - **Docker** — a lightweight Portainer per project: dashboard with containers, CPU, memory and disk, live stats, start / stop / restart / pause / kill / remove (also for a selection), logs, a shell in a container, images and volumes with removal and cleanup — over the project's own SSH / WSL connection, without opening a port.
 - **Monitor** — a host monitor for Linux machines (SSH, WSL, local Linux): CPU with per-core load, memory and swap, disk and network I/O, disk usage per mount point and the running programs, with live charts.
+- **PowerShell remoting** — a project type for Windows machines over WinRM (`Enter-PSSession`), with a connection test and step-by-step setup help in the project editor.
 - **MCP server** — tools to list, read, prompt and wait for sessions, open sessions, run commands and create projects; app tokens for local clients, OAuth sign-in (built-in with approval in the app, or authentik / Keycloak / Entra ID) for claude.ai.
 - **Coding agents** — install Claude Code, Codex, OpenCode, Antigravity, Copilot, pi, Cursor and Qwen Code, and deploy MCP servers, skills (also from Git repositories) and APM packages to them, per project, on the project's machine.
 - **Orchestrators** — OpenCode-based coordinators that react when watched sessions finish (e.g. developer + reviewer loops), with round limits, pause and stop.
@@ -113,6 +114,18 @@ Turn on **Monitor** in the project editor and the project gets a **Monitor** tab
 - **Programs** — the busiest processes with CPU, memory, threads and command line; sortable and filterable by command, user or PID.
 
 How it works: one process on the machine prints a sample of `/proc` every 2 seconds over the project's connection (`ssh … sh -c`, `wsl.exe --exec bash`), and TermClaw computes the rates from consecutive samples. Nothing is installed on the machine and no port is opened; the process stops 15 seconds after you leave the tab.
+
+## PowerShell remoting (Windows machines)
+
+Choose **PowerShell remoting (WinRM)** as the connection type of a project (Windows version of TermClaw). A session runs a local PowerShell that connects with `New-PSSession` / `Enter-PSSession`; the start directory is set on the remote machine. You get a remote PowerShell prompt, not a full terminal: interactive console programs and coding agents do not work there — enable OpenSSH on the Windows machine and use an SSH project for those. Docker, Monitor, the file browser and agent setup are not offered for this type.
+
+The project editor has **Test connection** (port, WinRM service, TrustedHosts, with hints for what to fix) and **Setup help…**. In short:
+
+1. On the remote machine, PowerShell as administrator: `Enable-PSRemoting -Force` (on a “Public” network add `-SkipNetworkProfileCheck` and open the firewall rule `WINRM-HTTP-In-TCP`).
+2. The user must be an administrator or in “Remote Management Users” (local accounts: `MACHINE\user`).
+3. Outside an Active Directory domain, on this computer as administrator: `Set-Item WSMan:\localhost\Client\TrustedHosts -Value <host> -Concatenate -Force`, or use HTTPS (port 5986, certificate on the remote machine; tick “Accept self-signed certificates” for a self-signed one).
+
+No password is stored: with a user name the password is asked in the terminal, without one the current Windows account is used.
 
 ## Docker
 

@@ -252,6 +252,7 @@ function monitorSpec(project, host) {
 }
 
 function unsupported(project) {
+  if (project.type === 'psremote') return 'The monitor needs a Linux machine; PowerShell remoting connects to Windows.';
   if (project.type === 'local' && process.platform !== 'linux') return 'The monitor needs a Linux machine: an SSH host, a WSL distribution or a project on this computer when it runs Linux.';
   return null;
 }

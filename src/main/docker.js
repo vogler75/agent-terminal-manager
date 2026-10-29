@@ -17,6 +17,7 @@ const dockerCli = (project) => ((project.docker && project.docker.command) || 'd
 
 // Process that connects its stdin/stdout to the Docker Engine API of the project machine.
 function dialSpec(project, host) {
+  if (project.type === 'psremote') throw new Error('Docker is not available for PowerShell remoting projects.');
   const cli = dockerCli(project);
   if (project.type === 'ssh') {
     const t = resolveTarget(project, host);

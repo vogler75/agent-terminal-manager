@@ -19,6 +19,7 @@ const PS_BOOTSTRAP = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; $s=[Conso
 
 class Target {
   constructor(project, host) {
+    if (project.type === 'psremote') throw new Error('Coding agent setup is not available for PowerShell remoting projects (use an SSH project).');
     this.project = project;
     this.host = host;
     this.kind = project.type === 'local' && IS_WIN ? 'powershell' : 'posix';

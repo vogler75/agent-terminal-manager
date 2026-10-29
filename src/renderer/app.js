@@ -159,7 +159,7 @@ function renderSidebar() {
     h('span', { class: 'caret', onclick: (e) => { e.stopPropagation(); collapsed ? S.collapsed.delete(p.id) : S.collapsed.add(p.id); renderSidebar(); } }, list.length || dockerOn(p) ? (collapsed ? '▸' : '▾') : ''),
     dot(projectStatus(p.id), { 'data-pdot': p.id }),
     h('span', { class: 'proj-name' }, p.name),
-    h('span', { class: 'proj-type' }, p.type === 'ssh' ? (host ? host.name : 'ssh') : p.type),
+    h('span', { class: 'proj-type' }, p.type === 'ssh' ? (host ? host.name : 'ssh') : p.type === 'psremote' ? (p.host || 'winrm') : p.type),
     h('span', { class: 'proj-actions' },
       h('button', { class: 'icon', title: 'New session (default)', onclick: (e) => { e.stopPropagation(); openSession(p.id); } }, '+'),
       h('button', { class: 'icon', title: 'Tile view', onclick: (e) => { e.stopPropagation(); S.projectId = p.id; S.view = 'project'; setMode(p, mode(p) === 'tiles' ? 'tabs' : 'tiles'); } }, '▦'),

@@ -337,6 +337,7 @@ class SessionManager extends EventEmitter {
     const project = this.store.getProject(projectId);
     if (!project) throw new Error('Unknown project ' + projectId);
     const tpl = { ...project.defaultSession, ...opts };
+    if (project.type === 'psremote' && tpl.kind && tpl.kind !== 'terminal') throw new Error('Agent sessions need a POSIX shell; PowerShell remoting projects only open terminals.');
     const name = opts.exactName ? opts.name : this.uniqueName(projectId, tpl.name || 'shell');
     const o = { ...tpl, name };
     const s = o.kind === 'agent' ? this.agentFactory(this, project, o)

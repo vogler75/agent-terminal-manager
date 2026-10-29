@@ -10,6 +10,7 @@ const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
 const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
 const { MonitorManager } = require('./monitor');
+const { testConnection: psremoteTest } = require('./psremote');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
@@ -199,6 +200,9 @@ const api = {
     monitor.reset(id);
     store.deleteProject(id);
   },
+
+  // PowerShell remoting: reachability and WinRM checks for the project editor's form values.
+  psremoteTest: (project) => psremoteTest(project),
 
   // Monitor tab: the sampling process runs while the tab is visible.
   monitorWatch: (projectId) => monitor.watch(projectId),

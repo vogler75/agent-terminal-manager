@@ -46,6 +46,38 @@ const AGENT_COMMAND = {
 const sessionType = (o) => (o && o.kind === 'acp' ? `acp:${o.acpAgent || 'opencode'}` : (o && o.kind) || 'terminal');
 const fromSessionType = (v) => (String(v).startsWith('acp:') ? { kind: 'acp', acpAgent: v.slice(4) } : { kind: v || 'terminal', acpAgent: undefined });
 
+// Steps to enable PowerShell remoting (WinRM) on the Windows machine and to let this computer connect.
+function psremoteHelp(hostName, https) {
+  const h1 = hostName || '<host>';
+  const code = (text) => h('pre', { class: 'ps-code' }, text);
+  modal({
+    title: 'PowerShell remoting: setup',
+    width: 760,
+    okText: 'Close',
+    cancelText: '',
+    body: h('div', { class: 'ps-help' },
+      h('p', null, 'TermClaw opens a local PowerShell that connects with Enter-PSSession (WinRM). You get a remote PowerShell prompt, not a full terminal: interactive console programs (vim, coding agents) do not work. For those enable OpenSSH on the Windows machine and use an SSH project.'),
+      h('h4', null, '1. On the remote machine (PowerShell as administrator)'),
+      code('Enable-PSRemoting -Force'),
+      h('p', null, 'Starts the WinRM service, creates the listener and opens the firewall. If the network is “Public” the command stops: switch it to Private, or use'),
+      code("Enable-PSRemoting -Force -SkipNetworkProfileCheck\nSet-NetFirewallRule -Name 'WINRM-HTTP-In-TCP' -RemoteAddress Any"),
+      h('p', null, 'Check: Get-Service WinRM (Running) and winrm enumerate winrm/config/listener.'),
+      h('h4', null, '2. Allow the account'),
+      h('p', null, 'The user must be an administrator or a member of “Remote Management Users” on the remote machine. For a local account, enter the user as MACHINE\\user.'),
+      code('Add-LocalGroupMember -Group "Remote Management Users" -Member "bob"'),
+      h('h4', null, '3. On this computer, when the remote machine is not in your Active Directory domain'),
+      h('p', null, 'Windows only connects to unknown machines over HTTP when they are in TrustedHosts (PowerShell as administrator):'),
+      code(`Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value ${h1} -Concatenate -Force`),
+      h('p', null, 'The setting is a comma separated list; * trusts every machine (not recommended). Inside a domain use the host’s full name (host.domain.local) with Kerberos and skip this step.'),
+      h('h4', null, '4. Optional: HTTPS (port 5986, no TrustedHosts needed)'),
+      code('$c = New-SelfSignedCertificate -DnsName "' + h1 + '" -CertStoreLocation Cert:\\LocalMachine\\My\nNew-Item -Path WSMan:\\localhost\\Listener -Transport HTTPS -Address * -CertificateThumbPrint $c.Thumbprint -Force\nNew-NetFirewallRule -DisplayName "WinRM HTTPS" -Direction Inbound -Protocol TCP -LocalPort 5986 -Action Allow'),
+      h('p', null, 'With a self-signed certificate tick “Accept self-signed certificates” in the project (or import the certificate into this computer’s trusted root store).'),
+      h('h4', null, 'Test from this computer'),
+      code(`Test-WSMan ${h1}${https ? ' -UseSSL' : ''}\nEnter-PSSession -ComputerName ${h1}${https ? ' -UseSSL' : ''} -Credential (Get-Credential)`),
+      h('p', { class: 'muted' }, 'Common errors: “Access is denied” = account not allowed or wrong password; “The WinRM client cannot process the request … TrustedHosts” = step 3; “cannot connect … port 5985” = firewall or service (step 1). A local administrator over the network may need LocalAccountTokenFilterPolicy=1 when the account is not the built-in Administrator.')),
+  });
+}
+
 export async function editProject(ctx, p) {
   const { S, call } = ctx;
   const [agentsList, skillsInfo] = await Promise.all([call('agentsList'), call('skillsList').catch(() => ({ skills: [] }))]);
@@ -53,7 +85,8 @@ export async function editProject(ctx, p) {
   p = p ? structuredClone(p) : { type: 'local', tmux: S.platform !== 'win32', keepAlive: true, defaultSession: { name: 'shell', command: '', kind: 'terminal' }, terminals: [], commands: [], forwards: [], port: 22 };
   const I = (k, attrs = {}) => h('input', { value: p[k] ?? '', ...attrs });
   const name = I('name', { placeholder: 'e.g. backend' });
-  const type = h('select', null, [['local', 'Local'], ['ssh', 'SSH'], ['wsl', 'WSL']].map(([v, l]) => h('option', { value: v, selected: p.type === v }, l)));
+  const TYPES = [['local', 'Local'], ['ssh', 'SSH'], ['wsl', 'WSL'], ...(S.platform === 'win32' || p.type === 'psremote' ? [['psremote', 'PowerShell remoting (WinRM)']] : [])];
+  const type = h('select', null, TYPES.map(([v, l]) => h('option', { value: v, selected: p.type === v }, l)));
   const hostSel = h('select', null, h('option', { value: '' }, '— custom connection —'), S.config.hosts.map((x) => h('option', { value: x.id, selected: p.hostId === x.id }, `${x.name} (${x.user ? x.user + '@' : ''}${x.hostname})`)));
   const host = I('host', { placeholder: 'hostname or IP' });
   const user = I('user', { placeholder: 'user' });
@@ -70,6 +103,27 @@ export async function editProject(ctx, p) {
   const x11 = h('select', null, X11_MODES.map(([v, l]) => h('option', { value: v, selected: (p.x11 || 'off') === v }, l)));
   const x11Display = I('x11Display', { placeholder: S.platform === 'win32' ? 'localhost:0.0' : 'DISPLAY of the app' });
   const x11Hint = h('div', { class: 'hint' });
+  const ps = p.psremote || {};
+  const psSsl = h('input', { type: 'checkbox', checked: ps.ssl });
+  const psPort = h('input', { type: 'number', value: ps.port || '', placeholder: '5985 (HTTPS: 5986)', style: { width: '170px' } });
+  const psAuth = h('select', null, [['Default', 'Default (Kerberos or NTLM)'], ['Negotiate', 'Negotiate'], ['Kerberos', 'Kerberos (domain)']].map(([v, l]) => h('option', { value: v, selected: (ps.auth || 'Default') === v }, l)));
+  const psSkip = h('input', { type: 'checkbox', checked: ps.skipCertCheck });
+  const psResult = h('div', { class: 'ps-result' });
+  const userHint = h('div', { class: 'hint' });
+  const psValues = () => ({ host: host.value.trim(), user: user.value.trim(), psremote: { ssl: psSsl.checked, port: Number(psPort.value) || '', auth: psAuth.value, skipCertCheck: psSkip.checked } });
+  const psTest = h('button', { type: 'button', onclick: async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    clear(psResult).appendChild(h('div', { class: 'muted' }, 'Testing…'));
+    try {
+      const r = await call('psremoteTest', { type: 'psremote', ...psValues() });
+      clear(psResult);
+      for (const s of r.steps) psResult.appendChild(h('div', { class: 'ps-step ' + (s.ok ? (s.warn ? 'warn' : 'ok') : 'bad') }, (s.ok ? (s.warn ? '! ' : '✓ ') : '✗ ') + s.name + ': ' + s.detail));
+      if (r.ok) psResult.appendChild(h('div', { class: 'hint' }, 'The connection is possible. User name and password are checked when a session starts.'));
+      if (r.hints.length) psResult.appendChild(h('ul', { class: 'ps-hints' }, r.hints.map((x) => h('li', null, x))));
+    } catch (err) { clear(psResult).appendChild(h('div', { class: 'bad' }, err.message)); } finally { b.disabled = false; }
+  } }, 'Test connection');
+  const psHelp = h('button', { type: 'button', onclick: () => psremoteHelp(host.value.trim(), psSsl.checked) }, 'Setup help…');
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
   const dockerEnabled = h('input', { type: 'checkbox', checked: p.docker && p.docker.enabled });
   const monitorEnabled = h('input', { type: 'checkbox', checked: p.monitor && p.monitor.enabled });
@@ -119,6 +173,9 @@ export async function editProject(ctx, p) {
   const agentSection = projectSetupSection(ctx, p, agentsList, skillsInfo.skills);
   const sshOnly = [];
   const inlineOnly = [];
+  const hostUserOnly = [];
+  const psOnly = [];
+  const posixOnly = [];
   const wslOnly = [];
   const displayOnly = [];
   const grp = (arr, ...els) => { arr.push(...els.filter(Boolean)); return els; };
@@ -126,20 +183,25 @@ export async function editProject(ctx, p) {
     field('Name', name),
     field('Connection type', type),
     grp(sshOnly, ...field('Developer host', hostSel, 'Projects reference a host from the host directory')),
-    grp(inlineOnly, ...field('Host', host)),
-    grp(inlineOnly, ...field('User', user)),
+    grp(hostUserOnly, ...field('Host', host)),
+    grp(hostUserOnly, h('label', null, 'User'), h('div', null, user, userHint)),
     grp(inlineOnly, ...field('Port', port)),
+    grp(psOnly, ...field('WinRM port', psPort, 'Empty = 5985 (HTTP) or 5986 (HTTPS)')),
+    grp(psOnly, ...field('Transport', h('label', { class: 'row' }, psSsl, 'HTTPS (port 5986, needs a certificate on the remote machine)'))),
+    grp(psOnly, ...field('Authentication', psAuth)),
+    grp(psOnly, ...field('Certificate', h('label', { class: 'row' }, psSkip, 'Accept self-signed certificates (skip CA, name and revocation checks)'))),
+    grp(psOnly, h('label', null, 'Check'), h('div', null, h('div', { class: 'row' }, psTest, psHelp), psResult)),
     grp(wslOnly, ...field('WSL distribution', distro)),
     field('Start directory', dir, 'Empty = the host’s workspace folder or the home directory'),
-    field('tmux', h('label', { class: 'row' }, tmux, 'One named tmux session per terminal (attach or create); agents keep running when the connection drops')),
+    grp(posixOnly, ...field('tmux', h('label', { class: 'row' }, tmux, 'One named tmux session per terminal (attach or create); agents keep running when the connection drops'))),
     grp(sshOnly, ...field('Keep-alive', h('div', { class: 'row' }, keep, h('span', { class: 'muted' }, 'ServerAliveInterval'), keepInt, h('span', { class: 'muted' }, 'CountMax'), keepMax))),
     grp(sshOnly, h('label', null, 'X11 forwarding'), h('div', null, x11, x11Hint)),
     grp(displayOnly, ...field('X display', x11Display)),
     field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
-    field('Docker', h('div', { class: 'row' }, h('label', { class: 'row' }, dockerEnabled, 'Docker tab: containers, logs, shell, images, volumes'), h('span', { class: 'muted' }, 'CLI'), dockerCmd),
-      'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.'),
-    field('Monitor', h('label', { class: 'row' }, monitorEnabled, 'Monitor tab: CPU, memory, disk and network I/O, disk usage per mount, programs'),
-      'For Linux machines (SSH, WSL or local Linux). Reads /proc over one connection while the tab is open; nothing is installed on the machine.'),
+    grp(posixOnly, ...field('Docker', h('div', { class: 'row' }, h('label', { class: 'row' }, dockerEnabled, 'Docker tab: containers, logs, shell, images, volumes'), h('span', { class: 'muted' }, 'CLI'), dockerCmd),
+      'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.')),
+    grp(posixOnly, ...field('Monitor', h('label', { class: 'row' }, monitorEnabled, 'Monitor tab: CPU, memory, disk and network I/O, disk usage per mount, programs'),
+      'For Linux machines (SSH, WSL or local Linux). Reads /proc over one connection while the tab is open; nothing is installed on the machine.')),
     field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
     h('h3', { class: 'full' }, 'Default session (plus button)'),
     field('Name', dsName),
@@ -152,12 +214,16 @@ export async function editProject(ctx, p) {
     h('div', { class: 'full' }, cmds.el),
     grp(sshOnly, h('h3', { class: 'full' }, 'Port forwarding (local port → remote port)')),
     grp(sshOnly, h('div', { class: 'full' }, fwds.el)),
-    agentSection.elements);
+    grp(posixOnly, ...agentSection.elements));
 
   const sync = () => {
     const t = type.value;
     sshOnly.forEach((e) => (e.style.display = t === 'ssh' ? '' : 'none'));
     inlineOnly.forEach((e) => (e.style.display = t === 'ssh' && !hostSel.value ? '' : 'none'));
+    hostUserOnly.forEach((e) => (e.style.display = (t === 'ssh' && !hostSel.value) || t === 'psremote' ? '' : 'none'));
+    psOnly.forEach((e) => (e.style.display = t === 'psremote' ? '' : 'none'));
+    posixOnly.forEach((e) => (e.style.display = t === 'psremote' ? 'none' : ''));
+    userHint.textContent = t === 'psremote' ? 'Empty = the current Windows account (Kerberos / NTLM). With a user name the password is asked in the terminal and never stored. Local account: MACHINE\\user.' : '';
     wslOnly.forEach((e) => (e.style.display = t === 'wsl' || (t === 'ssh' && x11.value === 'wsl') ? '' : 'none'));
     displayOnly.forEach((e) => (e.style.display = t === 'ssh' && x11.value === 'display' ? '' : 'none'));
     x11Hint.textContent = {
@@ -182,6 +248,7 @@ export async function editProject(ctx, p) {
       if (!name.value.trim()) throw new Error('Name is missing');
       if (dsKind.value === 'acp:custom' && !agentCmd.value.trim()) throw new Error('ACP command is missing (e.g. my-agent --acp)');
       if (type.value === 'ssh' && !hostSel.value && !host.value.trim()) throw new Error('Host is missing');
+      if (type.value === 'psremote' && !host.value.trim()) throw new Error('Host is missing');
       const out = {
         ...p,
         name: name.value.trim(),
@@ -192,7 +259,8 @@ export async function editProject(ctx, p) {
         port: Number(port.value) || 22,
         directory: dir.value.trim(),
         wslDistro: distro.value.trim(),
-        tmux: tmux.checked,
+        tmux: type.value === 'psremote' ? false : tmux.checked,
+        psremote: psValues().psremote,
         keepAlive: keep.checked,
         keepAliveInterval: Number(keepInt.value) || 30,
         keepAliveCountMax: Number(keepMax.value) || 3,

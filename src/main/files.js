@@ -245,6 +245,7 @@ class LocalFiles {
 }
 
 function filesFor(project, host) {
+  if (project.type === 'psremote') throw new Error('The file browser is not available for PowerShell remoting projects (use an SSH project).');
   return project.type === 'ssh' || project.type === 'wsl' ? new RemoteFiles(project, host) : new LocalFiles(project, host);
 }
 
