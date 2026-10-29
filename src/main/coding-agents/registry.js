@@ -77,7 +77,7 @@ const opencode = Object.assign(new OpenCodeAgent({
   name: 'OpenCode',
   bin: 'opencode',
   homepage: 'https://opencode.ai/docs',
-  install: { posix: 'curl -fsSL https://opencode.ai/v2/install | bash', powershell: 'npm install -g @opencode/cli' },
+  install: { posix: 'curl -fsSL https://opencode.ai/v2/install | bash', powershell: 'npm config set allow-scripts=@opencode/cli --location=user; npm install -g @opencode/cli' },
   files: { project: proj('opencode.json'), user: home('.config/opencode/opencode.json') },
   skills: { project: proj('.opencode/skills'), user: home('.config/opencode/skills') },
   stdio: (s, det) => ({ type: 'local', command: [s.command, ...s.args], environment: nonEmpty(s.env), ...(isV1(det) ? { enabled: true } : {}) }),
