@@ -1,6 +1,6 @@
 {
-  "name": "agent-terminal-manager",
-  "productName": "Agent Terminal Manager",
+  "name": "termclaw",
+  "productName": "TermClaw",
   "version": "0.2.0",
   "description": "Manage parallel AI agents across projects and terminals",
   "main": "src/main/main.js",
@@ -17,7 +17,7 @@
     "dist:mac": "node scripts/version.js && npm run build:renderer && electron-builder --mac"
   },
   "build": {
-    "appId": "com.vogler.agent-terminal-manager",
+    "appId": "com.vogler.termclaw",
     "files": [
       "src/**/*",
       "dist/**/*",
@@ -26,7 +26,7 @@
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",
-      "dist/atm-mcp-stdio.js"
+      "dist/termclaw-mcp-stdio.js"
     ],
     "win": {
       "target": [

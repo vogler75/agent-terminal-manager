@@ -1,5 +1,5 @@
 @echo off
-rem Builds Agent Terminal Manager for Windows.
+rem Builds TermClaw for Windows.
 rem
 rem   build.bat           installer + portable exe + unpacked app (release\)
 rem   build.bat dir       only the unpacked app (release\win-unpacked), fastest

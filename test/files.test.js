@@ -18,16 +18,16 @@ test('directory listing output is parsed: folders first, names with spaces and t
 
 test('scripts quote paths and session ids for the remote shell', () => {
   assert.match(LIST_SCRIPT("'/tmp/a b'"), /^cd '\/tmp\/a b' \|\| exit 3; pwd -P/);
-  assert.match(CWD_SCRIPT('abc-1'), /'\^ATM_SID=abc-1\$'/);
+  assert.match(CWD_SCRIPT('abc-1'), /'\^TERMCLAW_SID=abc-1\$'/);
 });
 
 test('ssh shells without tmux carry the session marker for the directory lookup', () => {
   const s = buildSpawn({ name: 'p', type: 'ssh', host: 'dev1', user: 'bob', directory: '/srv', tmux: false }, null, { id: 's-42', name: 'x' });
-  assert.match(s.args[s.args.length - 1], /^export ATM_SID='s-42'; cd '\/srv' && exec/);
+  assert.match(s.args[s.args.length - 1], /^export TERMCLAW_SID='s-42'; cd '\/srv' && exec/);
 });
 
 test('local projects: list, exists, mkdir, upload and download copy files and folders', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-files-'));
   const proj = path.join(root, 'proj');
   const src = path.join(root, 'src');
   fs.mkdirSync(proj);

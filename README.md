@@ -1,4 +1,4 @@
-# Agent Terminal Manager
+# TermClaw
 
 Desktop app for Windows and macOS that keeps many AI coding agents running in parallel across projects and machines — in terminals (local, SSH, WSL, with tmux) or as structured agent sessions with a chat view (OpenCode, GitHub Copilot and other ACP agents). A built-in MCP server lets other agents (Claude Code, claude.ai, your own tools) see and drive the sessions, and orchestrators can coordinate them on their own.
 
@@ -6,7 +6,7 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 
 ## Features
 
-- **Projects and sessions** — local PowerShell / shell, SSH and WSL terminals; one tmux session per terminal so agents keep running when the connection drops; auto-reconnect, keep-alive and port forwarding.
+- **Projects and sessions** — local PowerShell / shell, SSH and WSL terminals; one tmux session per terminal so agents keep running when the connection drops; auto-reconnect, keep-alive, port forwarding and X11 forwarding (on Windows through WSLg).
 - **Tabs, tiles and overview** — a project's sessions as tabs or 2/3/4/grid tiles; an overview of every running session in every project.
 - **Status and notifications** — working (yellow) / waiting (green) from output pauses or the terminal bell, exact status for agent sessions; desktop notification when an agent is done or waits for you.
 - **Agent sessions with a chat view** — OpenCode (server API) and any agent speaking the Agent Client Protocol: OpenCode, GitHub Copilot CLI or your own command. Markdown answers, compact tool calls, model and mode picker, slash commands, permission cards, approval level, live token usage.
@@ -21,8 +21,8 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 
 Download the latest build from the GitHub **Releases** page of this repository:
 
-- **Windows x64:** `Agent Terminal Manager Setup <version>.exe` (installer) or `Agent Terminal Manager <version>.exe` (portable). The builds are not code-signed; SmartScreen asks once (*More info → Run anyway*).
-- **macOS Apple silicon:** `.dmg` or `.zip`. Not notarized: after copying the app to Applications run `xattr -dr com.apple.quarantine "/Applications/Agent Terminal Manager.app"` once.
+- **Windows x64:** `TermClaw Setup <version>.exe` (installer) or `TermClaw <version>.exe` (portable). The builds are not code-signed; SmartScreen asks once (*More info → Run anyway*).
+- **macOS Apple silicon:** `.dmg` or `.zip`. Not notarized: after copying the app to Applications run `xattr -dr com.apple.quarantine "/Applications/TermClaw.app"` once.
 
 Requirements on the machines you connect to: `ssh` with key authentication (your `~/.ssh/config` and ssh-agent are used), `tmux` for persistent sessions, and the agents you want to run.
 
@@ -60,12 +60,23 @@ The project editor sets the connection (local, SSH, WSL, or a developer host), s
 | Type | Command |
 |---|---|
 | Local | PowerShell (Windows) or `$SHELL -l` (macOS) in the start directory |
-| SSH | `ssh -t [-p port] [-o ServerAliveInterval=30 -o ServerAliveCountMax=3] user@host '<script>'` — the script changes into the directory and attaches to (or creates) the tmux session `atm-<project>-<session>`, running the start command on creation. Without tmux: `cd <dir> && exec $SHELL -l`. |
+| SSH | `ssh -t [-p port] [-o ServerAliveInterval=30 -o ServerAliveCountMax=3] user@host '<script>'` — the script changes into the directory and attaches to (or creates) the tmux session `termclaw-<project>-<session>`, running the start command on creation. Without tmux: `cd <dir> && exec $SHELL -l`. |
 | WSL | `wsl.exe -d <distribution> --cd <path> [-- bash -lc '<tmux script>']` |
 | OpenCode server | `opencode serve` (locally directly, on SSH/WSL targets inside tmux), reached over its HTTP API; SSH targets via `ssh -L`. |
 | ACP agent | the agent process (`opencode acp`, `copilot --acp`, …) with JSON-RPC over stdin/stdout — locally as a child process, on SSH/WSL through the same connection. |
 
 Authentication uses SSH keys, ssh-agent and your own `~/.ssh/config` only (host aliases work as hostnames). No passwords are stored; fields such as `password` are stripped on save and import. Port forwarding per SSH project (local port → remote port) runs as a separate `ssh -N -L …` process while at least one session of the project is running.
+
+### X11 forwarding
+
+SSH projects can show remote X11 programs locally (project editor → *X11 forwarding*):
+
+| Setting | Session command | Local X server |
+|---|---|---|
+| Through WSL (WSLg), Windows | `wsl.exe -d <distribution> --exec ssh -Y -t … user@host '<script>'` | WSLg, built into WSL 2 |
+| Windows X server / On (macOS, Linux) | `ssh -Y -t …` with `DISPLAY` (default `localhost:0.0` on Windows) | VcXsrv, X410, XQuartz or the desktop's own |
+
+WSLg's X server is only reachable from inside WSL, so the *Through WSL* setting runs the session with the ssh client of the chosen distribution: its `~/.ssh` keys, `~/.ssh/config` and `known_hosts` apply, not the Windows ones. File transfer, port forwarding and tmux cleanup keep using the Windows ssh client, so the host must accept the keys of both. The server needs `X11Forwarding yes` in `sshd_config` and `xauth` installed. With tmux, reattaching updates `DISPLAY` for new tmux windows; shells that were already open keep the old value (`export DISPLAY=…` or open a new window).
 
 ## Agent sessions
 
@@ -87,7 +98,7 @@ ACP agents are implemented in `src/main/acp.js`; another built-in agent is one e
 - **Drop files onto a terminal** (from the Explorer / Finder) to copy them to the project machine, into the directory the shell is in right now. Folders work too. If a name already exists you are asked before it is replaced. On a local terminal the file paths are typed in instead.
 - **Files** in the project header (or *Browse files…* in the context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder. **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
 
-SSH and WSL transfers run over `ssh` / `wsl.exe` with the terminal's connection settings: files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `ATM_SID`; otherwise the project folder is used.
+SSH and WSL transfers run over `ssh` / `wsl.exe` with the terminal's connection settings: files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `TERMCLAW_SID`; otherwise the project folder is used.
 
 ## MCP server
 
@@ -113,16 +124,16 @@ Resources: `session://<project>/<name>/status`, subscribable. The server instruc
 Connect Claude Code:
 
 ```bash
-claude mcp add --transport http atm http://127.0.0.1:47900/mcp --header "Authorization: Bearer <token>"
+claude mcp add --transport http termclaw http://127.0.0.1:47900/mcp --header "Authorization: Bearer <token>"
 ```
 
-Clients that only speak stdio use the bridge `dist/atm-mcp-stdio.js` (`ATM_MCP_TOKEN=<token> node dist/atm-mcp-stdio.js [url]`).
+Clients that only speak stdio use the bridge `dist/termclaw-mcp-stdio.js` (`TERMCLAW_MCP_TOKEN=<token> node dist/termclaw-mcp-stdio.js [url]`).
 
 ### OAuth sign-in (claude.ai and other web clients)
 
 ![Approval of a claude.ai sign-in in the app](docs/screenshots/oauth-approval.png)
 
-claude.ai connectors sign in with OAuth 2.1 and cannot send a fixed `Authorization` header. Turn on **Allow OAuth sign-in** on the MCP page, set the **Public URL** (the HTTPS URL of `/mcp` behind your reverse proxy or tunnel, e.g. `https://atm.example.com/mcp`) and pick the authorization server:
+claude.ai connectors sign in with OAuth 2.1 and cannot send a fixed `Authorization` header. Turn on **Allow OAuth sign-in** on the MCP page, set the **Public URL** (the HTTPS URL of `/mcp` behind your reverse proxy or tunnel, e.g. `https://termclaw.example.com/mcp`) and pick the authorization server:
 
 - **Built-in:** the app is its own authorization server (RFC 9728 / RFC 8414 metadata, Client ID Metadata Documents and Dynamic Client Registration, PKCE S256, rotating refresh tokens). When a client signs in, the app shows who wants access and where it returns to; you approve with read-only or full access, or deny. Approved sign-ins are listed and can be revoked. In claude.ai choose *Use Claude's published identity*.
 - **External identity provider** (authentik, Keycloak, Entra ID, …): the provider signs users in, the app validates its JWT access tokens (JWKS signature, issuer, expiry, `aud`/`azp` among the allowed client ids) and maps a group claim to access (required group, group with full access). **Test provider** checks discovery and keys. Providers without automatic client registration (e.g. authentik): create an OAuth2/OpenID application with redirect URI `https://claude.ai/api/mcp/auth_callback` and enter its client id under *Advanced settings* in claude.ai.
@@ -138,7 +149,7 @@ In claude.ai: **Customize → Connectors → Add custom connector** with the pub
 - **Install** types the agent's official install command into the active terminal (PowerShell variant for local Windows projects, shell variant for macOS/Linux, SSH and WSL), so you see the output and can answer prompts.
 - **Library** (sidebar): MCP servers (stdio command or HTTP URL; env vars and headers are encrypted with the OS keychain), your skills folder (`<name>/SKILL.md` + files), Git sources for skills and APM packages.
 - **Project editor → Coding agents:** pick MCP servers, skills and APM packages for the project, the target agents (all installed, or a selection) and the scope (project folder or home directory).
-- **Deploy MCP & skills (update)** detects the installed agents on the project's machine and writes each agent's own config format (e.g. `.mcp.json` and `.claude/skills` for Claude Code, `opencode.json` for OpenCode, `~/.codex/config.toml` for Codex). Your own entries are never changed; deselected servers and skills are removed on the next deploy. What was deployed is recorded in `.agent-terminal-manager/deployed.json`.
+- **Deploy MCP & skills (update)** detects the installed agents on the project's machine and writes each agent's own config format (e.g. `.mcp.json` and `.claude/skills` for Claude Code, `opencode.json` for OpenCode, `~/.codex/config.toml` for Codex). Your own entries are never changed; deselected servers and skills are removed on the next deploy. What was deployed is recorded in `.termclaw/deployed.json`.
 
 ![Library with MCP servers, skills and APM packages](docs/screenshots/library.png)
 
@@ -179,7 +190,7 @@ npm test
 npm run e2e
 ```
 
-The E2E script drives the real app through Playwright. Environment variables enable additional parts: `ATM_E2E_SSH=user@host:port` (SSH target with key login and tmux), `ATM_E2E_WSL=Ubuntu`, `ATM_E2E_OPENCODE=1` (agent sessions and orchestrators; needs a working OpenCode model), `ATM_E2E_COPILOT=1`, `ATM_E2E_APM=1`.
+The E2E script drives the real app through Playwright. Environment variables enable additional parts: `TERMCLAW_E2E_SSH=user@host:port` (SSH target with key login and tmux), `TERMCLAW_E2E_WSL=Ubuntu`, `TERMCLAW_E2E_OPENCODE=1` (agent sessions and orchestrators; needs a working OpenCode model), `TERMCLAW_E2E_COPILOT=1`, `TERMCLAW_E2E_APM=1`.
 
 Screenshots for this README are taken from the real app with a demo setup:
 

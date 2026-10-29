@@ -10,7 +10,7 @@ const { z } = require('zod');
 const { OAuthServer } = require('./mcp-oauth');
 
 // Sent to MCP clients on initialize; most clients put it into the model's context.
-const SERVER_INSTRUCTIONS = `Agent Terminal Manager: control coding agents and terminals running in projects.
+const SERVER_INSTRUCTIONS = `TermClaw: control coding agents and terminals running in projects.
 
 Session kinds (see list_sessions):
 - "agent" (OpenCode server API) and "acp" (Agent Client Protocol, e.g. OpenCode or GitHub Copilot): agent sessions. Prefer these when you delegate work to an agent: send_to_session sends a prompt, the status comes from the agent itself (working until the turn is done), and read_output returns structured messages including tool calls. Slash commands like "/compact" can be sent as text.
@@ -55,7 +55,7 @@ class McpService extends EventEmitter {
   }
 
   createToken({ name, readOnly = false }) {
-    const secret = 'atm_' + crypto.randomBytes(24).toString('base64url');
+    const secret = 'termclaw_' + crypto.randomBytes(24).toString('base64url');
     const t = { id: crypto.randomUUID(), name: name || 'token', readOnly: !!readOnly, prefix: secret.slice(0, 10), hash: sha256(secret), created: Date.now(), revoked: false, lastUsed: null };
     this.store.data.tokens.push(t);
     this.store.save();
@@ -66,7 +66,7 @@ class McpService extends EventEmitter {
   renewToken(id) {
     const t = this.store.data.tokens.find((x) => x.id === id);
     if (!t) throw new Error('unknown token');
-    const secret = 'atm_' + crypto.randomBytes(24).toString('base64url');
+    const secret = 'termclaw_' + crypto.randomBytes(24).toString('base64url');
     t.hash = sha256(secret);
     t.prefix = secret.slice(0, 10);
     t.revoked = false;
@@ -262,7 +262,7 @@ class McpService extends EventEmitter {
   _buildServer(client) {
     const ctx = client.ctx;
     const server = new McpServer(
-      { name: 'agent-terminal-manager', version: VERSION },
+      { name: 'termclaw', version: VERSION },
       { capabilities: { resources: { subscribe: true, listChanged: true }, logging: {} }, instructions: SERVER_INSTRUCTIONS },
     );
     const text = (obj) => ({ content: [{ type: 'text', text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }] });

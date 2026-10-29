@@ -12,7 +12,7 @@ const { simplifyMessages, messagesToText } = require('../src/main/opencode');
 const sshProject = { name: 'Backend API', type: 'ssh', host: 'dev1', user: 'bob', port: 2200, directory: '~/workspace/api', tmux: true, keepAlive: true, keepAliveInterval: 30, keepAliveCountMax: 3 };
 
 test('tmux session names are sanitized', () => {
-  assert.strictEqual(tmuxName({ name: 'Backend API' }, 'shell.1:x'), 'atm-backend-api-shell-1-x');
+  assert.strictEqual(tmuxName({ name: 'Backend API' }, 'shell.1:x'), 'termclaw-backend-api-shell-1-x');
 });
 
 test('shell quoting', () => {
@@ -27,9 +27,9 @@ test('ssh spawn: -t, port, keep-alive, tmux attach-or-create in directory', () =
   assert.deepStrictEqual(s.args.slice(0, 7), ['-t', '-p', '2200', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=3']);
   assert.strictEqual(s.args[7], 'bob@dev1');
   const script = s.args[8];
-  assert.match(script, /tmux has-session -t '=atm-backend-api-agent'/);
-  assert.match(script, /tmux new-session -d -s 'atm-backend-api-agent' -c ~\/'workspace\/api'/);
-  assert.match(script, /send-keys -t 'atm-backend-api-agent' 'claude' Enter/);
+  assert.match(script, /tmux has-session -t '=termclaw-backend-api-agent'/);
+  assert.match(script, /tmux new-session -d -s 'termclaw-backend-api-agent' -c ~\/'workspace\/api'/);
+  assert.match(script, /send-keys -t 'termclaw-backend-api-agent' 'claude' Enter/);
   assert.match(script, /exec tmux attach-session/);
   assert.strictEqual(s.postStart, '');
 });
@@ -55,6 +55,26 @@ test('wsl spawn: distribution, --cd, tmux via bash -lc', () => {
   assert.deepStrictEqual(s.args.slice(0, 7), ['-d', 'Ubuntu', '--cd', '/tmp', '--', 'bash', '-lc']);
   const plain = buildSpawn({ name: 'p', type: 'wsl', wslDistro: 'Ubuntu', directory: '/tmp', tmux: false }, null, { name: 'w' });
   assert.deepStrictEqual(plain.args, ['-d', 'Ubuntu', '--cd', '/tmp']);
+});
+
+test('ssh X11 forwarding: off, local X server, through WSL', () => {
+  const off = buildSpawn({ ...sshProject, x11: 'off' }, null, { name: 'a' });
+  assert.ok(!off.args.includes('-Y'));
+  assert.strictEqual(off.env, undefined);
+
+  const disp = buildSpawn({ ...sshProject, x11: 'display', x11Display: 'localhost:1.0' }, null, { name: 'a' });
+  assert.match(disp.file, /^ssh(\.exe)?$/);
+  assert.deepStrictEqual(disp.args.slice(0, 2), ['-Y', '-t']);
+  assert.deepStrictEqual(disp.env, { DISPLAY: 'localhost:1.0' });
+
+  const wsl = buildSpawn({ ...sshProject, x11: 'wsl', wslDistro: 'Ubuntu' }, null, { name: 'a' });
+  if (process.platform === 'win32') {
+    assert.strictEqual(wsl.file, 'wsl.exe');
+    assert.deepStrictEqual(wsl.args.slice(0, 7), ['-d', 'Ubuntu', '--exec', 'ssh', '-Y', '-t', '-p']);
+    assert.ok(wsl.args.includes('bob@dev1'));
+  } else {
+    assert.deepStrictEqual(wsl.args.slice(0, 2), ['-Y', '-t']); // no WSL: falls back to the local DISPLAY
+  }
 });
 
 test('local spawn uses the configured directory', () => {
@@ -86,7 +106,7 @@ test('stripAnsi removes escapes and handles carriage returns', () => {
 });
 
 test('store persists, strips passwords, imports and exports', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-unit-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-unit-'));
   const st = new Store(dir);
   const p = st.saveProject({ name: 'x', type: 'ssh', host: 'h', password: 'secret' });
   assert.ok(!('password' in p));
@@ -108,7 +128,7 @@ test('store persists, strips passwords, imports and exports', () => {
 });
 
 test('broken config file is kept as backup', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-unit-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-unit-'));
   fs.writeFileSync(path.join(dir, 'config.json'), '{broken');
   const st = new Store(dir);
   assert.deepStrictEqual(st.data.projects, []);
@@ -118,7 +138,7 @@ test('broken config file is kept as backup', () => {
 test('OpenCode messages are simplified oldest first', () => {
   const msgs = [
     { id: 'm3', type: 'idle', time: { created: 3 }, outcome: 'succeeded' },
-    { id: 'm2', type: 'assistant', time: { created: 2, completed: 3 }, content: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: 'Blue.' }, { type: 'tool', name: 'atm_read_output', state: { status: 'completed', input: {}, content: [{ type: 'text', text: 'ok' }] } }] },
+    { id: 'm2', type: 'assistant', time: { created: 2, completed: 3 }, content: [{ type: 'reasoning', text: 'hmm' }, { type: 'text', text: 'Blue.' }, { type: 'tool', name: 'termclaw_read_output', state: { status: 'completed', input: {}, content: [{ type: 'text', text: 'ok' }] } }] },
     { id: 'm1', type: 'user', time: { created: 1 }, text: 'Sky?' },
   ];
   const s = simplifyMessages(msgs);

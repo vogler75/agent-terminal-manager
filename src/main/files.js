@@ -22,11 +22,11 @@ else
   for f in .[!.]* ..?* *; do [ -e "$f" ] || [ -L "$f" ] || continue; if [ -d "$f" ]; then t=d; else t=f; fi; printf '%s\\t%s\\t%s\\t%s\\0' "$t" "$(stat -f %z "$f")" "$(stat -f %m "$f")" "$f"; done
 fi`;
 
-// Working directory of the session's shell, found by the ATM_SID marker in its environment (Linux /proc):
+// Working directory of the session's shell, found by the TERMCLAW_SID marker in its environment (Linux /proc):
 // the newest shell process carrying the marker (so a nested shell wins).
 const CWD_SCRIPT = (sid) => `bn=0; best=
 for f in /proc/[0-9]*/environ; do
-  grep -qzs ${shq('^ATM_SID=' + sid + '$')} "$f" 2>/dev/null || continue
+  grep -qzs ${shq('^TERMCLAW_SID=' + sid + '$')} "$f" 2>/dev/null || continue
   p=\${f%/environ}; n=\${p#/proc/}
   case "$(cat "$p/comm" 2>/dev/null)" in bash|zsh|sh|fish|dash|ksh|mksh|ash) [ "$n" -gt "$bn" ] && { bn=$n; best=$p; } ;; esac
 done
@@ -144,7 +144,7 @@ class RemoteFiles {
           .catch((e) => { throw new Error(`${name}: ${tarErr.trim() || e.message}`); });
       } else {
         // Write to a temporary name first so an aborted transfer leaves no half file behind.
-        const tmp = `${dest}.atm-part`;
+        const tmp = `${dest}.termclaw-part`;
         await this.run(`cat > ${shq(tmp)} && mv -f ${shq(tmp)} ${shq(dest)} || { rm -f ${shq(tmp)}; exit 1; }`, { stdin: fs.createReadStream(lp).pipe(counter(tick)), timeout: 120000 })
           .catch((e) => { throw new Error(`${name}: ${e.message}`); });
       }
@@ -174,7 +174,7 @@ class RemoteFiles {
         if (code !== 0) throw new Error(`${name}: ${tarErr.trim() || 'tar failed'}`);
       } else {
         const target = path.join(localDir, name);
-        const tmp = target + '.atm-part';
+        const tmp = target + '.termclaw-part';
         const file = fs.createWriteStream(tmp);
         const c = counter(tick);
         c.pipe(file);

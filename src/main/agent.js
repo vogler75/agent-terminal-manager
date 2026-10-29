@@ -57,7 +57,7 @@ class AgentSession extends BaseSession {
         this.agentSessionId = s.id;
         this.mgr.persistOpen(this.projectId);
       }
-      if (this.command) await this.client.setInstructions(this.agentSessionId, 'atm-start', this.command).catch(() => {});
+      if (this.command) await this.client.setInstructions(this.agentSessionId, 'termclaw-start', this.command).catch(() => {});
       if (this.chosenModel) {
         const m = this.chosenModel;
         await this.client.setModel(this.agentSessionId, m, m.variant || undefined)
@@ -129,7 +129,7 @@ class AgentSession extends BaseSession {
   // tmux, and logs the server output to a file for error reports. Returns 'started' or 'running'.
   async _startRemote(target, name, agentCmd, dir, restart) {
     const d = posixDir(dir);
-    const log = `$HOME/.cache/agent-terminal-manager/${name}.log`;
+    const log = `$HOME/.cache/termclaw/${name}.log`;
     const script = [
       target.preamble(),
       `BIN=$(command -v ${shq(agentCmd)} 2>/dev/null)`,
@@ -137,7 +137,7 @@ class AgentSession extends BaseSession {
       'echo "@@BIN $BIN"',
       'echo "@@VERSION $("$BIN" --version 2>&1 </dev/null | head -n 1)"',
       'command -v tmux >/dev/null 2>&1 || { echo "@@ERR notmux"; exit 0; }',
-      `mkdir -p "$HOME/.cache/agent-terminal-manager"`,
+      `mkdir -p "$HOME/.cache/termclaw"`,
       restart ? `tmux kill-session -t ${shq('=' + name)} 2>/dev/null; sleep 0.5` : ':',
       `if tmux has-session -t ${shq('=' + name)} 2>/dev/null; then echo "@@RUNNING"; else`,
       `  tmux new-session -d -s ${shq(name)} "${d ? `cd ${d.replace(/"/g, '\\"')} && ` : ''}OPENCODE_SERVER_PASSWORD=${shq(this.agentKey)} exec \\"$BIN\\" serve --hostname 127.0.0.1 --port ${this.remotePort} > \\"${log}\\" 2>&1" && echo "@@STARTED" || echo "@@ERR tmuxfail"`,
@@ -166,13 +166,13 @@ class AgentSession extends BaseSession {
   async _remoteFailure(target, name, err) {
     const r = await target.run([
       `if tmux has-session -t ${shq('=' + name)} 2>/dev/null; then echo "@@ALIVE"; fi`,
-      `tail -n 15 "$HOME/.cache/agent-terminal-manager/${name}.log" 2>/dev/null`,
+      `tail -n 15 "$HOME/.cache/termclaw/${name}.log" 2>/dev/null`,
     ].join('\n'), { timeout: 30000 }).catch(() => ({ out: '' }));
     const alive = r.out.includes('@@ALIVE');
     const log = r.out.replace('@@ALIVE', '').trim();
     return `OpenCode did not answer on port ${this.remotePort} (${err.message}). ` +
       (alive ? 'The server is running but not reachable through the tunnel.' : 'The server process exited.') +
-      (log ? `\nServer log (~/.cache/agent-terminal-manager/${name}.log):\n${log}` : '');
+      (log ? `\nServer log (~/.cache/termclaw/${name}.log):\n${log}` : '');
   }
 
   _run(file, args) {
@@ -304,7 +304,7 @@ class AgentSession extends BaseSession {
       case 'new': {
         const s = await this.client.createSession();
         this.agentSessionId = s.id;
-        if (this.command) await this.client.setInstructions(s.id, 'atm-start', this.command).catch(() => {});
+        if (this.command) await this.client.setInstructions(s.id, 'termclaw-start', this.command).catch(() => {});
         if (this.chosenModel) await this.client.setModel(s.id, this.chosenModel, this.chosenModel.variant || undefined).catch(() => {});
         this.mgr.persistOpen(this.projectId);
         this.messages = [];

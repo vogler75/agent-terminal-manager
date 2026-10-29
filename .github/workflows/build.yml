@@ -46,12 +46,12 @@ jobs:
           sleep 1
           ssh-keyscan -p 2222 127.0.0.1 >> ~/.ssh/known_hosts
           ssh -o BatchMode=yes -p 2222 "$USER@127.0.0.1" 'echo ssh-ok; command -v tmux || echo "PATH=$PATH"'
-          echo "ATM_E2E_SSH=$USER@127.0.0.1:2222" >> "$GITHUB_ENV"
-          echo "ATM_E2E_OPENCODE=1" >> "$GITHUB_ENV"
+          echo "TERMCLAW_E2E_SSH=$USER@127.0.0.1:2222" >> "$GITHUB_ENV"
+          echo "TERMCLAW_E2E_OPENCODE=1" >> "$GITHUB_ENV"
       - name: E2E (local shell, UI, MCP; macOS also SSH/tmux/OpenCode)
         run: npm run e2e
         env:
-          ATM_E2E_SHOTS: e2e-shots
+          TERMCLAW_E2E_SHOTS: e2e-shots
       - name: Package
         run: npx electron-builder --publish never
         env:

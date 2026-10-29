@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 // stdio <-> Streamable HTTP bridge for MCP clients that only speak stdio (e.g. Claude Desktop, Claude Code).
-// Usage: ATM_MCP_TOKEN=atm_... node atm-mcp-stdio.js [url]   (default url http://127.0.0.1:47900/mcp)
+// Usage: TERMCLAW_MCP_TOKEN=termclaw_... node termclaw-mcp-stdio.js [url]   (default url http://127.0.0.1:47900/mcp)
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
 
-const url = process.argv[2] || process.env.ATM_MCP_URL || 'http://127.0.0.1:47900/mcp';
-const token = process.env.ATM_MCP_TOKEN;
+const url = process.argv[2] || process.env.TERMCLAW_MCP_URL || 'http://127.0.0.1:47900/mcp';
+const token = process.env.TERMCLAW_MCP_TOKEN;
 if (!token) {
-  process.stderr.write('ATM_MCP_TOKEN is not set. Create a token in Agent Terminal Manager → MCP.\n');
+  process.stderr.write('TERMCLAW_MCP_TOKEN is not set. Create a token in TermClaw → MCP.\n');
   process.exit(1);
 }
 

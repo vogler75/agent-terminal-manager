@@ -132,7 +132,7 @@ class OAuthServer extends EventEmitter {
   }
 
   async _authenticateExternal(token, req) {
-    if (!token.includes('.')) return null; // app tokens (atm_…) are checked by the caller
+    if (!token.includes('.')) return null; // app tokens (termclaw_…) are checked by the caller
     const h = sha256(token);
     const hit = this.verified.get(h);
     if (hit && hit.exp > Date.now()) return hit.ctx;
@@ -169,7 +169,7 @@ class OAuthServer extends EventEmitter {
     const r = this.pending.get(id);
     if (!r || r.decision) return false;
     if (!approve) {
-      r.decision = { location: this._redirect(r, { error: 'access_denied', error_description: 'The user denied access in Agent Terminal Manager' }) };
+      r.decision = { location: this._redirect(r, { error: 'access_denied', error_description: 'The user denied access in TermClaw' }) };
       this.audit.add({ source: 'app', action: 'oauth.deny', detail: `${r.client.client_name} → ${r.redirectHost}` });
     } else {
       const code = rnd();
@@ -208,9 +208,9 @@ class OAuthServer extends EventEmitter {
     if (p.startsWith('/.well-known/oauth-protected-resource')) {
       if (this.external) {
         const cfg = this._ext();
-        return json(200, { resource: base + '/mcp', authorization_servers: [cfg.issuer], scopes_supported: cfg.scopes, bearer_methods_supported: ['header'], resource_name: 'Agent Terminal Manager' }), true;
+        return json(200, { resource: base + '/mcp', authorization_servers: [cfg.issuer], scopes_supported: cfg.scopes, bearer_methods_supported: ['header'], resource_name: 'TermClaw' }), true;
       }
-      return json(200, { resource: base + '/mcp', authorization_servers: [base], scopes_supported: SCOPES, bearer_methods_supported: ['header'], resource_name: 'Agent Terminal Manager' }), true;
+      return json(200, { resource: base + '/mcp', authorization_servers: [base], scopes_supported: SCOPES, bearer_methods_supported: ['header'], resource_name: 'TermClaw' }), true;
     }
     // With an external provider the app has no authorization server endpoints of its own.
     if (this.external) { res.writeHead(404, cors); res.end(); return true; }
@@ -327,9 +327,9 @@ class OAuthServer extends EventEmitter {
     setTimeout(() => { if (!r.decision) { this.pending.delete(r.id); this.emit('decided', r.id); } }, REQUEST_TTL).unref?.();
     this.audit.add({ source: 'external', action: 'oauth.authorize', detail: `${client.client_name} → ${r.redirectHost}`, remote });
     this.emit('request', this._publicRequest(r));
-    page(200, 'Approve in Agent Terminal Manager', `
-<p><b>${esc(client.client_name)}</b> wants to access your Agent Terminal Manager.</p>
-<p>Open the Agent Terminal Manager app on your computer and approve or deny the request there.<br>You will be sent back to <b>${esc(r.redirectHost)}</b> afterwards.</p>
+    page(200, 'Approve in TermClaw', `
+<p><b>${esc(client.client_name)}</b> wants to access your TermClaw.</p>
+<p>Open the TermClaw app on your computer and approve or deny the request there.<br>You will be sent back to <b>${esc(r.redirectHost)}</b> afterwards.</p>
 <p id="st" class="muted">Waiting for approval…</p>
 <script>
 (function poll(){fetch('authorize/status?request=${r.id}').then(function(r){return r.json()}).then(function(s){

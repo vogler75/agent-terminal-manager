@@ -64,6 +64,12 @@ export async function editProject(ctx, p) {
   const keep = h('input', { type: 'checkbox', checked: p.keepAlive });
   const keepInt = h('input', { type: 'number', value: p.keepAliveInterval || 30, style: { width: '80px' } });
   const keepMax = h('input', { type: 'number', value: p.keepAliveCountMax || 3, style: { width: '80px' } });
+  const X11_MODES = S.platform === 'win32'
+    ? [['off', 'Off'], ['wsl', 'Through WSL (WSLg)'], ['display', 'Windows X server (VcXsrv, X410)']]
+    : [['off', 'Off'], ['display', 'On (ssh -Y)']];
+  const x11 = h('select', null, X11_MODES.map(([v, l]) => h('option', { value: v, selected: (p.x11 || 'off') === v }, l)));
+  const x11Display = I('x11Display', { placeholder: S.platform === 'win32' ? 'localhost:0.0' : 'DISPLAY of the app' });
+  const x11Hint = h('div', { class: 'hint' });
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
@@ -111,6 +117,7 @@ export async function editProject(ctx, p) {
   const sshOnly = [];
   const inlineOnly = [];
   const wslOnly = [];
+  const displayOnly = [];
   const grp = (arr, ...els) => { arr.push(...els.filter(Boolean)); return els; };
   const form = h('div', { class: 'form' },
     field('Name', name),
@@ -123,6 +130,8 @@ export async function editProject(ctx, p) {
     field('Start directory', dir, 'Empty = the host’s workspace folder or the home directory'),
     field('tmux', h('label', { class: 'row' }, tmux, 'One named tmux session per terminal (attach or create); agents keep running when the connection drops')),
     grp(sshOnly, ...field('Keep-alive', h('div', { class: 'row' }, keep, h('span', { class: 'muted' }, 'ServerAliveInterval'), keepInt, h('span', { class: 'muted' }, 'CountMax'), keepMax))),
+    grp(sshOnly, h('label', null, 'X11 forwarding'), h('div', null, x11, x11Hint)),
+    grp(displayOnly, ...field('X display', x11Display)),
     field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
     field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
     h('h3', { class: 'full' }, 'Default session (plus button)'),
@@ -142,9 +151,16 @@ export async function editProject(ctx, p) {
     const t = type.value;
     sshOnly.forEach((e) => (e.style.display = t === 'ssh' ? '' : 'none'));
     inlineOnly.forEach((e) => (e.style.display = t === 'ssh' && !hostSel.value ? '' : 'none'));
-    wslOnly.forEach((e) => (e.style.display = t === 'wsl' ? '' : 'none'));
+    wslOnly.forEach((e) => (e.style.display = t === 'wsl' || (t === 'ssh' && x11.value === 'wsl') ? '' : 'none'));
+    displayOnly.forEach((e) => (e.style.display = t === 'ssh' && x11.value === 'display' ? '' : 'none'));
+    x11Hint.textContent = {
+      off: '',
+      wsl: 'The session runs the ssh client of the WSL distribution above (empty = default) (its ~/.ssh keys and known_hosts); remote windows open through WSLg. File transfer and port forwarding still use the Windows ssh client. The server needs X11Forwarding yes and xauth.',
+      display: 'Runs ssh -Y; an X server must be running locally. The server needs X11Forwarding yes and xauth.',
+    }[x11.value];
   };
   type.addEventListener('change', sync);
+  x11.addEventListener('change', sync);
   hostSel.addEventListener('change', sync);
   sync();
 
@@ -173,6 +189,8 @@ export async function editProject(ctx, p) {
         keepAlive: keep.checked,
         keepAliveInterval: Number(keepInt.value) || 30,
         keepAliveCountMax: Number(keepMax.value) || 3,
+        x11: x11.value,
+        x11Display: x11Display.value.trim(),
         autoReconnect: auto.checked,
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
@@ -344,9 +362,9 @@ export function renderMcp(ctx, main) {
       h('h2', null, 'Connect a client'),
       h('p', null, 'claude.ai (web, desktop, mobile): turn on OAuth sign-in above, then Customize → Connectors → Add custom connector with the public URL ', h('code', null, cfg.publicUrl || 'https://<your host>/mcp'), '. Built-in mode: leave the OAuth client fields empty and approve the sign-in in this app. External provider: enter its client id under Advanced settings if it has no automatic registration.'),
       h('p', null, 'Claude Code (HTTP):'),
-      h('pre', { class: 'secret' }, `claude mcp add --transport http atm ${localUrl} --header "Authorization: Bearer <token>"`),
+      h('pre', { class: 'secret' }, `claude mcp add --transport http termclaw ${localUrl} --header "Authorization: Bearer <token>"`),
       h('p', null, 'Clients that only support stdio (e.g. Claude Desktop) via the bridge:'),
-      h('pre', { class: 'secret' }, JSON.stringify({ mcpServers: { atm: { command: 'node', args: [S.stdioBridge || 'atm-mcp-stdio.js', localUrl], env: { ATM_MCP_TOKEN: '<token>' } } } }, null, 2))));
+      h('pre', { class: 'secret' }, JSON.stringify({ mcpServers: { termclaw: { command: 'node', args: [S.stdioBridge || 'termclaw-mcp-stdio.js', localUrl], env: { TERMCLAW_MCP_TOKEN: '<token>' } } } }, null, 2))));
   renderTokens();
 }
 
@@ -354,7 +372,7 @@ export function renderMcp(ctx, main) {
 function oauthCard(ctx) {
   const { S, call } = ctx;
   const cfg = S.config.settings.mcp || {};
-  const publicUrl = h('input', { value: cfg.publicUrl || '', placeholder: 'https://atm.example.com/mcp' });
+  const publicUrl = h('input', { value: cfg.publicUrl || '', placeholder: 'https://termclaw.example.com/mcp' });
   const grantsBox = h('div');
   const renderGrants = async () => {
     const grants = await call('oauthGrants');
@@ -378,7 +396,7 @@ function oauthCard(ctx) {
     h('option', { value: 'builtin', selected: cfg.oauthMode !== 'external' }, 'Built-in — the app signs clients in; you approve each sign-in here'),
     h('option', { value: 'external', selected: cfg.oauthMode === 'external' }, 'External identity provider — authentik, Keycloak, Entra ID, …'));
   const inp = (key, placeholder, def = '') => h('input', { value: cfg[key] ?? def, placeholder });
-  const issuer = inp('oauthIssuer', 'https://auth.example.com/application/o/atm/');
+  const issuer = inp('oauthIssuer', 'https://auth.example.com/application/o/termclaw/');
   const audience = inp('oauthAudience', 'client id of the provider application');
   const groupsClaim = inp('oauthGroupsClaim', 'groups', 'groups');
   const allowedGroup = inp('oauthAllowedGroup', 'empty = every user of the application');

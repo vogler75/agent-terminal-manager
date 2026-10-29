@@ -19,9 +19,9 @@ async function main() {
     logLevel: 'info',
   };
   const bridge = {
-    entryPoints: [path.join(root, 'bin/atm-mcp-stdio.js')],
+    entryPoints: [path.join(root, 'bin/termclaw-mcp-stdio.js')],
     bundle: true,
-    outfile: path.join(root, 'dist/atm-mcp-stdio.js'),
+    outfile: path.join(root, 'dist/termclaw-mcp-stdio.js'),
     platform: 'node',
     target: 'node18',
     format: 'cjs',

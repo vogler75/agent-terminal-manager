@@ -9,8 +9,8 @@ const TEMPLATES = [
   {
     id: 'dev-review',
     name: 'Developer + reviewer',
-    prompt: `You are an orchestrator that coordinates two coding agents running in terminal sessions of the Agent Terminal Manager.
-You control them only through the MCP tools of the "atm" server (list_sessions, send_to_session, read_output, wait_until_idle, wait_for_any_idle).
+    prompt: `You are an orchestrator that coordinates two coding agents running in terminal sessions of the TermClaw.
+You control them only through the MCP tools of the "termclaw" server (list_sessions, send_to_session, read_output, wait_until_idle, wait_for_any_idle).
 
 Roles:
 - The DEVELOPER session implements tasks.
@@ -18,7 +18,7 @@ Roles:
 
 Workflow:
 1. When the user gives you a task, send it to the developer with send_to_session.
-2. When the developer is finished (you receive an [ATM event] or wait_until_idle returns), read its output with read_output.
+2. When the developer is finished (you receive an [TermClaw event] or wait_until_idle returns), read its output with read_output.
 3. Send the reviewer a review request such as: "Review the latest changes with git diff and list concrete problems."
 4. When the reviewer is finished, read the result. If there are problems, send them to the developer to fix, then repeat the review.
 5. When the review is clean, summarize the result for the user and stop.
@@ -28,8 +28,8 @@ Rules: keep prompts to the agents short and concrete. Do not invent output; alwa
   {
     id: 'watch',
     name: 'Watch',
-    prompt: `You watch agent sessions of the Agent Terminal Manager through the MCP tools of the "atm" server.
-When you receive an [ATM event] that a session is waiting, read its output and decide:
+    prompt: `You watch agent sessions of the TermClaw through the MCP tools of the "termclaw" server.
+When you receive an [TermClaw event] that a session is waiting, read its output and decide:
 - If the agent finished its task, summarize the result in one or two sentences.
 - If the agent is asking for confirmation of a safe, obvious step, answer it with send_to_session.
 - If the agent is stuck, has an error, or asks something risky, describe the situation and ask the user what to do.`,
@@ -37,7 +37,7 @@ When you receive an [ATM event] that a session is waiting, read its output and d
   {
     id: 'empty',
     name: 'Empty',
-    prompt: 'You are an orchestrator for the Agent Terminal Manager. Use the MCP tools of the "atm" server to control the sessions you are allowed to access.',
+    prompt: 'You are an orchestrator for the TermClaw. Use the MCP tools of the "termclaw" server to control the sessions you are allowed to access.',
   },
 ];
 
@@ -102,7 +102,7 @@ class OrchestratorManager extends EventEmitter {
     const rt = this.runtime.get(merged.id);
     if (rt && rt.tokenCtx) this.mcp.updateInternalScope(rt.tokenCtx, merged.watched);
     if (rt && rt.client && rt.sessionId && rt.state !== 'stopped') {
-      rt.client.setInstructions(rt.sessionId, 'atm-system', this._systemText(merged)).catch(() => {});
+      rt.client.setInstructions(rt.sessionId, 'termclaw-system', this._systemText(merged)).catch(() => {});
     }
     this._emit(merged.id);
     return this.describe(merged.id);
@@ -153,11 +153,11 @@ class OrchestratorManager extends EventEmitter {
       const tok = this.mcp.createInternalToken(o.name, o.watched || []);
       rt.token = tok.secret;
       rt.tokenCtx = tok.ctx;
-      await client.addMcp('atm', { type: 'remote', url: this.mcp.localUrl(), headers: { Authorization: 'Bearer ' + tok.secret }, oauth: false });
+      await client.addMcp('termclaw', { type: 'remote', url: this.mcp.localUrl(), headers: { Authorization: 'Bearer ' + tok.secret }, oauth: false });
       const sess = await client.createSession();
       rt.sessionId = sess.id;
       if (o.model) await client.setModel(sess.id, o.model).catch((e) => { rt.error = 'model: ' + e.message; });
-      await client.setInstructions(sess.id, 'atm-system', this._systemText(o));
+      await client.setInstructions(sess.id, 'termclaw-system', this._systemText(o));
       client.on('event', (ev) => this._onEvent(id, ev));
       rt.state = 'idle';
       this.audit.add({ source: 'orchestrator', action: 'start', detail: o.name });
@@ -176,12 +176,12 @@ class OrchestratorManager extends EventEmitter {
     return `${o.systemPrompt}
 
 ---
-Context from the Agent Terminal Manager:
+Context from the TermClaw:
 Your name is "${o.name}". You may access exactly these sessions (project/name):
 ${watched}
-Use "project/name" as the session argument of the atm tools.
+Use "project/name" as the session argument of the termclaw tools.
 Sessions of kind "agent" or "acp" are agent sessions: their status is exact and read_output returns structured messages, so prefer them for delegating work. Sessions of kind "terminal" are text terminals (a shell or an agent TUI); their "waiting" status is guessed from output pauses, so always read the output before you continue.
-When a watched session becomes idle, you receive a message starting with "[ATM event]" that contains its latest output.
+When a watched session becomes idle, you receive a message starting with "[TermClaw event]" that contains its latest output.
 Be economical: you have at most ${o.maxRounds} event rounds before you are paused.`;
   }
 
@@ -276,7 +276,7 @@ Be economical: you have at most ${o.maxRounds} event rounds before you are pause
       return;
     }
     const events = rt.queue.splice(0);
-    const text = events.map((e) => `[ATM event] Session "${e.label}" is now waiting (finished or waiting for input).\nLast output:\n\`\`\`\n${e.output.slice(-6000)}\n\`\`\``).join('\n\n');
+    const text = events.map((e) => `[TermClaw event] Session "${e.label}" is now waiting (finished or waiting for input).\nLast output:\n\`\`\`\n${e.output.slice(-6000)}\n\`\`\``).join('\n\n');
     rt.rounds++;
     rt.sending = true;
     rt.busy = true;

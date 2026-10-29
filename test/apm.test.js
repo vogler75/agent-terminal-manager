@@ -37,7 +37,7 @@ test('a SKILL.md without frontmatter uses its first paragraph as description', (
   const os = require('os');
   const path = require('path');
   const { SkillsRepo } = require('../src/main/coding-agents/skills');
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-fp-'));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-fp-'));
   fs.mkdirSync(path.join(d, 'x'));
   fs.writeFileSync(path.join(d, 'x', 'SKILL.md'), '# Style Checker\n\nCheck code against the style guide.\n\n## When\n- a\n');
   assert.strictEqual(new SkillsRepo(d).list()[0].description, 'Check code against the style guide.');

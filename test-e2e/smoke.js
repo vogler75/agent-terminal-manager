@@ -13,7 +13,7 @@ const { launch, sleep } = require('./launch');
   await page.screenshot({ path: path.join(shots, '1-start.png') });
   await page.click('text=+ Open session');
   await sleep(2500);
-  await page.keyboard.type('echo hello-from-atm');
+  await page.keyboard.type('echo hello-from-termclaw');
   await page.keyboard.press('Enter');
   await sleep(1500);
   await page.screenshot({ path: path.join(shots, '2-session.png') });

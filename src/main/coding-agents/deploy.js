@@ -8,8 +8,8 @@ const secrets = require('../secrets');
 
 // Manifest of what this app deployed, stored next to the configs it manages.
 const MANIFEST = {
-  project: { base: 'project', rel: '.agent-terminal-manager/deployed.json' },
-  user: { base: 'home', rel: '.config/agent-terminal-manager/deployed.json' },
+  project: { base: 'project', rel: '.termclaw/deployed.json' },
+  user: { base: 'home', rel: '.config/termclaw/deployed.json' },
 };
 
 const sanitizeName = (n) => String(n || '').trim().replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
@@ -227,11 +227,11 @@ class AgentSetup {
       ...writes.map((w) => (w.remove ? t.removeDirSnippet(w.remove) : t.writeSnippet(w.loc, w.content))),
       t.strict(false),
       ...commands.map((c) => t.commandSnippet(c.key, c.cmd, { cwd: c.cwd })),
-      t.echo('@@ATM_DONE'),
+      t.echo('@@TERMCLAW_DONE'),
     ].join('\n');
     // APM downloads packages from Git; give it time.
     const r2 = await t.run(writeScript, { timeout: commands.some((c) => c.agent === 'apm') ? 900000 : 120000 });
-    const done = r2.out.includes('@@ATM_DONE');
+    const done = r2.out.includes('@@TERMCLAW_DONE');
     if (!done || (r2.code !== 0 && t.kind === 'posix')) report.errors.push(`Writing failed: ${(r2.err || r2.out).trim().slice(-600)}`);
     const cmdRes = parseSections(r2.out).cmd;
     for (const c of commands) {

@@ -79,9 +79,9 @@ jobs:
         run: |
           ls -l dist
           cat > notes.md <<EOF
-          Agent Terminal Manager ${{ needs.check.outputs.version }}
+          TermClaw ${{ needs.check.outputs.version }}
 
-          - Windows x64: \`Agent Terminal Manager Setup ${{ needs.check.outputs.version }}.exe\` (installer) or \`Agent Terminal Manager ${{ needs.check.outputs.version }}.exe\` (portable). Unsigned: SmartScreen asks once (More info → Run anyway).
-          - macOS Apple silicon: \`.dmg\` or \`.zip\` (arm64). Not notarized: after copying to Applications run \`xattr -dr com.apple.quarantine "/Applications/Agent Terminal Manager.app"\` once.
+          - Windows x64: \`TermClaw Setup ${{ needs.check.outputs.version }}.exe\` (installer) or \`TermClaw ${{ needs.check.outputs.version }}.exe\` (portable). Unsigned: SmartScreen asks once (More info → Run anyway).
+          - macOS Apple silicon: \`.dmg\` or \`.zip\` (arm64). Not notarized: after copying to Applications run \`xattr -dr com.apple.quarantine "/Applications/TermClaw.app"\` once.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Agent Terminal Manager ${{ needs.check.outputs.version }}" --notes-file notes.md --generate-notes
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "TermClaw ${{ needs.check.outputs.version }}" --notes-file notes.md --generate-notes

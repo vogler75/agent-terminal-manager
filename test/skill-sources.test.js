@@ -18,7 +18,7 @@ test('source validation: URLs, branch names, sub-folders', () => {
 });
 
 test('skill folders are found at any depth; a skill folder is not searched further', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-src-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-src-'));
   const mk = (rel) => { fs.mkdirSync(path.join(root, rel), { recursive: true }); fs.writeFileSync(path.join(root, rel, 'SKILL.md'), '---\nname: x\n---\n'); };
   mk('skills/a');
   mk('skills/group/b');
@@ -28,7 +28,7 @@ test('skill folders are found at any depth; a skill folder is not searched furth
   const found = findSkillDirs(root).map((d) => path.relative(root, d).replace(/\\/g, '/')).sort();
   assert.deepStrictEqual(found, ['skills/a', 'skills/group/b']);
   // A repository that is itself one skill
-  const single = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-src1-'));
+  const single = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-src1-'));
   fs.writeFileSync(path.join(single, 'SKILL.md'), '---\nname: one\n---\n');
   assert.deepStrictEqual(findSkillDirs(single), [single]);
 });

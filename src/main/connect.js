@@ -12,7 +12,7 @@ const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 // tmux session names may not contain '.' or ':'.
 function tmuxName(project, sessionName) {
   const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'x';
-  return `atm-${slug(project.name)}-${slug(sessionName)}`;
+  return `termclaw-${slug(project.name)}-${slug(sessionName)}`;
 }
 
 // Directory for use inside a POSIX shell: keep a leading ~ unquoted so it expands.
@@ -33,13 +33,13 @@ function tmuxScript(name, dir, command) {
   return `${cdPart}if command -v tmux >/dev/null 2>&1; then ` +
     `tmux has-session -t ${shq('=' + name)} 2>/dev/null || { ${create}; }; ` +
     `exec tmux attach-session -t ${shq('=' + name)}; ` +
-    `else echo '[atm] tmux not found, starting plain shell'; ${command ? command + '; ' : ''}exec "\${SHELL:-/bin/sh}" -l; fi`;
+    `else echo '[termclaw] tmux not found, starting plain shell'; ${command ? command + '; ' : ''}exec "\${SHELL:-/bin/sh}" -l; fi`;
 }
 
 // sid: marker in the shell's environment, so file transfers can find its current directory.
 function plainScript(dir, sid) {
   const d = posixDir(dir);
-  return `${sid ? `export ATM_SID=${shq(sid)}; ` : ''}${d ? `cd ${d} && ` : ''}exec "\${SHELL:-/bin/sh}" -l`;
+  return `${sid ? `export TERMCLAW_SID=${shq(sid)}; ` : ''}${d ? `cd ${d} && ` : ''}exec "\${SHELL:-/bin/sh}" -l`;
 }
 
 // Resolve connection data: a project either references a dev host or has inline host/user/port.
@@ -65,6 +65,14 @@ function sshDest(target) {
   return target.user ? `${target.user}@${target.hostname}` : target.hostname;
 }
 
+// X11 forwarding for ssh sessions: 'off', 'wsl' (ssh inside WSL, shown by WSLg; Windows only)
+// or 'display' (ssh -Y to the X server in DISPLAY, e.g. VcXsrv, X410 or XQuartz).
+function x11Mode(project) {
+  const m = project.x11 || 'off';
+  if (m === 'wsl' && !IS_WIN) return 'display';
+  return ['wsl', 'display'].includes(m) ? m : 'off';
+}
+
 function projectDir(project, host) {
   if (project.directory) return project.directory;
   if (host && host.workspace) return host.workspace;
@@ -84,13 +92,19 @@ function buildSpawn(project, host, session) {
   if (project.type === 'ssh') {
     const target = resolveTarget(project, host);
     const script = useTmux ? tmuxScript(name, dir, command) : plainScript(dir, session.id);
-    return {
-      file: SSH_BIN,
-      args: ['-t', ...sshBaseArgs(project, target), sshDest(target), script],
-      cwd: os.homedir(),
-      postStart: !useTmux && command ? command : '',
-      tmuxName: useTmux ? name : null,
-    };
+    const sshArgs = ['-t', ...sshBaseArgs(project, target), sshDest(target), script];
+    const spec = { file: SSH_BIN, args: sshArgs, cwd: os.homedir(), postStart: !useTmux && command ? command : '', tmuxName: useTmux ? name : null };
+    const x11 = x11Mode(project);
+    if (x11 === 'wsl') {
+      // WSLg's X server is only reachable inside WSL, so the ssh client of the distribution runs the session.
+      spec.file = 'wsl.exe';
+      spec.args = [...(project.wslDistro ? ['-d', project.wslDistro] : []), '--exec', 'ssh', '-Y', ...sshArgs];
+    } else if (x11 === 'display') {
+      spec.args = ['-Y', ...sshArgs];
+      const display = project.x11Display || process.env.DISPLAY || (IS_WIN ? 'localhost:0.0' : '');
+      if (display) spec.env = { DISPLAY: display };
+    }
+    return spec;
   }
 
   if (project.type === 'wsl') {
@@ -156,5 +170,5 @@ function buildRemoteExec(project, host, script) {
 
 module.exports = {
   SSH_BIN, buildSpawn, buildTmuxKill, buildForwardArgs, buildRemoteExec,
-  tmuxName, tmuxScript, shq, posixDir, resolveTarget, sshBaseArgs, sshDest, projectDir,
+  tmuxName, tmuxScript, shq, posixDir, resolveTarget, sshBaseArgs, sshDest, projectDir, x11Mode,
 };

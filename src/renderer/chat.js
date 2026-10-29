@@ -11,7 +11,7 @@ export function renderMessages(container, messages, live, { compact = false } = 
   let toolGroup = null; // consecutive tool-only assistant messages share one box
   for (const m of shown) {
     const tools = m.tools || [];
-    const isEvent = m.role === 'user' && (m.text || '').startsWith('[ATM event]');
+    const isEvent = m.role === 'user' && (m.text || '').startsWith('[TermClaw event]');
     if (m.role === 'assistant' && !m.text && tools.length && !m.error) {
       if (!toolGroup) {
         toolGroup = h('div', { class: 'msg assistant tools-only' }, m.time && !compact ? h('div', { class: 'meta' }, new Date(m.time).toLocaleTimeString()) : null);

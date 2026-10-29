@@ -6,7 +6,7 @@
 - `.github/workflows/build.yml` runs only on manual dispatch (`workflow_dispatch`). The maintainer starts it by hand once the app has reached a stable state.
 - `.github/workflows/release.yml` runs when a version tag `v*` is pushed. Only the maintainer creates and pushes version tags; agents never push tags.
 - The version lives in `version.txt`; change it only with `node scripts/version.js <x.y.z>` (also updates `package.json` and `package-lock.json`). `release.ps1` publishes a release and is run by the maintainer only.
-- Verify changes locally instead: `npm test` (unit tests) and `npm run e2e` (Playwright drives the real app; see README for the optional `ATM_E2E_SSH`, `ATM_E2E_WSL` and `ATM_E2E_OPENCODE` targets).
+- Verify changes locally instead: `npm test` (unit tests) and `npm run e2e` (Playwright drives the real app; see README for the optional `TERMCLAW_E2E_SSH`, `TERMCLAW_E2E_WSL` and `TERMCLAW_E2E_OPENCODE` targets).
 
 ## Project basics
 

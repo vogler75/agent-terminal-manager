@@ -1,4 +1,4 @@
-# Agent Terminal Manager – Anforderungen
+# TermClaw – Anforderungen
 
 ## Ziel
 

@@ -62,9 +62,9 @@ test('path expressions for POSIX and PowerShell targets', () => {
 
 test('script output sections are parsed', () => {
   const out = [
-    'noise', '@@ATM detect claude', '@@V 2.1.0 (Claude Code)', '@@RC 0', '@@ATM detect codex', '@@NONE', '@@ATM detect oc', '@@V Error: postinstall not run', '@@RC 1',
-    '@@ATM file f0', '@@B ' + Buffer.from('{"a":1}').toString('base64'), '@@ATM file f1', '@@NONE',
-    '@@ATM cmd c1', 'Added server', '@@EXIT 0', '@@ATM cmd c2', 'boom', '@@EXIT 1',
+    'noise', '@@TERMCLAW detect claude', '@@V 2.1.0 (Claude Code)', '@@RC 0', '@@TERMCLAW detect codex', '@@NONE', '@@TERMCLAW detect oc', '@@V Error: postinstall not run', '@@RC 1',
+    '@@TERMCLAW file f0', '@@B ' + Buffer.from('{"a":1}').toString('base64'), '@@TERMCLAW file f1', '@@NONE',
+    '@@TERMCLAW cmd c1', 'Added server', '@@EXIT 0', '@@TERMCLAW cmd c2', 'boom', '@@EXIT 1',
   ].join('\r\n');
   const p = parseSections(out);
   assert.deepStrictEqual(p.detect.claude, { installed: true, working: true, version: '2.1.0 (Claude Code)' });
@@ -81,7 +81,7 @@ test('a failing file write stops the write phase, so the deploy cannot report su
   const os = require('os');
   const path = require('path');
   const { Target } = require('../src/main/coding-agents/target');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-strict-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-strict-'));
   fs.writeFileSync(path.join(dir, 'blocker'), 'a file, not a folder');
   const t = new Target({ type: 'local', directory: dir }, null);
   const script = [
@@ -89,11 +89,11 @@ test('a failing file write stops the write phase, so the deploy cannot report su
     t.strict(true),
     t.writeSnippet({ base: 'project', rel: 'blocker/sub/x.txt' }, 'cannot be written'),
     t.strict(false),
-    t.echo('@@ATM_DONE'),
+    t.echo('@@TERMCLAW_DONE'),
   ].join('\n');
   const r = await t.run(script, { timeout: 30000 });
-  assert.ok(!r.out.includes('@@ATM_DONE'), 'done marker must not be printed after a failed write: ' + r.out);
-  const ok = await t.run([t.preamble(), t.strict(true), t.writeSnippet({ base: 'project', rel: 'good/x.txt' }, 'hi'), t.strict(false), t.echo('@@ATM_DONE')].join('\n'), { timeout: 30000 });
-  assert.ok(ok.out.includes('@@ATM_DONE'));
+  assert.ok(!r.out.includes('@@TERMCLAW_DONE'), 'done marker must not be printed after a failed write: ' + r.out);
+  const ok = await t.run([t.preamble(), t.strict(true), t.writeSnippet({ base: 'project', rel: 'good/x.txt' }, 'hi'), t.strict(false), t.echo('@@TERMCLAW_DONE')].join('\n'), { timeout: 30000 });
+  assert.ok(ok.out.includes('@@TERMCLAW_DONE'));
   assert.strictEqual(fs.readFileSync(path.join(dir, 'good', 'x.txt'), 'utf8'), 'hi');
 });

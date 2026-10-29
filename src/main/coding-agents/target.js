@@ -105,11 +105,11 @@ class Target {
   // reachable through /mnt/c are not Linux installs and count as missing.
   detectSnippet(key, bin, versionArgs = '--version') {
     if (this.kind === 'powershell') {
-      return `Write-Output '@@ATM detect ${key}'\n` +
+      return `Write-Output '@@TERMCLAW detect ${key}'\n` +
         `$c = Get-Command ${psq(bin)} -ErrorAction SilentlyContinue | Select-Object -First 1\n` +
         `if ($c) { $global:LASTEXITCODE = 0; try { $o = @(& $c.Source ${versionArgs} 2>&1); $rc = $LASTEXITCODE; $v = ($o | Select-Object -First 1) -as [string] } catch { $v = $_.Exception.Message; $rc = 1 }; Write-Output ('@@V ' + $v); Write-Output ('@@RC ' + $rc) } else { Write-Output '@@NONE' }`;
     }
-    return `echo '@@ATM detect ${key}'\n` +
+    return `echo '@@TERMCLAW detect ${key}'\n` +
       `p=$(command -v ${bin} 2>/dev/null)\n` +
       `case "$p" in ''|/mnt/[a-z]/*) echo '@@NONE' ;; *) v=$(${bin} ${versionArgs} 2>&1 </dev/null); rc=$?; echo "@@V $(printf '%s\\n' "$v" | head -n 1)"; echo "@@RC $rc" ;; esac`;
   }
@@ -117,10 +117,10 @@ class Target {
   readSnippet(key, loc) {
     const p = this.pathExpr(loc);
     if (this.kind === 'powershell') {
-      return `Write-Output '@@ATM file ${key}'\n$p = ${p}\n` +
+      return `Write-Output '@@TERMCLAW file ${key}'\n$p = ${p}\n` +
         `if (Test-Path -LiteralPath $p -PathType Leaf) { Write-Output ('@@B ' + [Convert]::ToBase64String([IO.File]::ReadAllBytes($p))) } else { Write-Output '@@NONE' }`;
     }
-    return `echo '@@ATM file ${key}'\nif [ -f ${p} ]; then printf '@@B '; base64 < ${p} | tr -d '\\n\\r'; echo; else echo '@@NONE'; fi`;
+    return `echo '@@TERMCLAW file ${key}'\nif [ -f ${p} ]; then printf '@@B '; base64 < ${p} | tr -d '\\n\\r'; echo; else echo '@@NONE'; fi`;
   }
 
   // content: text, or {base64} for binary files.
@@ -133,7 +133,7 @@ class Target {
     }
     // Write through a temp file so a failed decode never truncates the original.
     // `set -e` ignores failures inside an && chain, so end the script explicitly when the chain fails.
-    return `{ mkdir -p "$(dirname ${p})" && printf '%s' '${b64}' | base64 -d > ${p}.atm-tmp && mv ${p}.atm-tmp ${p}; } || { echo "write failed: ${p}" >&2; exit 1; }`;
+    return `{ mkdir -p "$(dirname ${p})" && printf '%s' '${b64}' | base64 -d > ${p}.termclaw-tmp && mv ${p}.termclaw-tmp ${p}; } || { echo "write failed: ${p}" >&2; exit 1; }`;
   }
 
   removeDirSnippet(loc) {
@@ -159,20 +159,20 @@ class Target {
     if (this.kind === 'powershell') {
       const cd = cwd ? `Push-Location -LiteralPath ${this.pathExpr(cwd)}; ` : '';
       const back = cwd ? ' Pop-Location;' : '';
-      return `Write-Output '@@ATM cmd ${key}'\n$global:LASTEXITCODE = 0\n$env:NO_COLOR = '1'\ntry { ${cd}${cmd} 2>&1 | ForEach-Object { "$_" };${back} } catch { Write-Output $_.Exception.Message; $global:LASTEXITCODE = 1 }\nWrite-Output ('@@EXIT ' + $LASTEXITCODE)`;
+      return `Write-Output '@@TERMCLAW cmd ${key}'\n$global:LASTEXITCODE = 0\n$env:NO_COLOR = '1'\ntry { ${cd}${cmd} 2>&1 | ForEach-Object { "$_" };${back} } catch { Write-Output $_.Exception.Message; $global:LASTEXITCODE = 1 }\nWrite-Output ('@@EXIT ' + $LASTEXITCODE)`;
     }
     const cd = cwd ? `cd ${this.pathExpr(cwd)} && ` : '';
-    return `echo '@@ATM cmd ${key}'\n( ${cd}NO_COLOR=1 ${cmd} ) </dev/null 2>&1; echo "@@EXIT $?"`;
+    return `echo '@@TERMCLAW cmd ${key}'\n( ${cd}NO_COLOR=1 ${cmd} ) </dev/null 2>&1; echo "@@EXIT $?"`;
   }
 }
 
-// Parse "@@ATM <type> <key>" sections from script output.
+// Parse "@@TERMCLAW <type> <key>" sections from script output.
 function parseSections(out) {
   const res = { detect: {}, file: {}, cmd: {} };
   let cur = null;
   for (const raw of out.split(/\r?\n/)) {
     const line = raw.replace(/\r$/, '');
-    const m = /^@@ATM (detect|file|cmd) (\S+)$/.exec(line);
+    const m = /^@@TERMCLAW (detect|file|cmd) (\S+)$/.exec(line);
     if (m) { cur = { type: m[1], key: m[2], lines: [] }; res[m[1]][m[2]] = cur; continue; }
     if (cur) cur.lines.push(line);
   }

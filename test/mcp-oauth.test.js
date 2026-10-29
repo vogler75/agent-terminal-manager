@@ -62,7 +62,7 @@ test('OAuth flow: discovery, DCR, approval in the app, PKCE token, refresh rotat
     const q = new URLSearchParams({ response_type: 'code', client_id: client.client_id, redirect_uri: 'https://claude.ai/api/mcp/auth_callback', code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz', scope: 'mcp:read mcp:full', resource: base + '/mcp' });
     const page = await fetch(asm.authorization_endpoint + '?' + q);
     assert.strictEqual(page.status, 200);
-    assert.match(await page.text(), /Approve in Agent Terminal Manager/);
+    assert.match(await page.text(), /Approve in TermClaw/);
     assert.strictEqual(request.clientName, 'Claude');
     assert.strictEqual(request.redirectHost, 'claude.ai');
     assert.deepStrictEqual(await (await fetch(`${base}/oauth/authorize/status?request=${request.id}`)).json(), { done: false });
@@ -108,12 +108,12 @@ test('OAuth flow: discovery, DCR, approval in the app, PKCE token, refresh rotat
 });
 
 test('OAuth: denial redirects with access_denied; unknown redirect URI is not redirected; disabled = 404', async () => {
-  const store = fakeStore({ publicUrl: 'https://atm.example.com/mcp' });
+  const store = fakeStore({ publicUrl: 'https://termclaw.example.com/mcp' });
   const oauth = new OAuthServer({ store, audit });
   const { server, base } = await serve(oauth);
   try {
     const prm = await (await fetch(base + '/.well-known/oauth-protected-resource/mcp')).json();
-    assert.strictEqual(prm.resource, 'https://atm.example.com/mcp');
+    assert.strictEqual(prm.resource, 'https://termclaw.example.com/mcp');
     const client = await (await fetch(base + '/oauth/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ redirect_uris: ['http://127.0.0.1/callback'] }) })).json();
     const { challenge } = pkce();
     const evil = await fetch(`${base}/oauth/authorize?` + new URLSearchParams({ response_type: 'code', client_id: client.client_id, redirect_uri: 'https://evil.example.com/cb', code_challenge: challenge, code_challenge_method: 'S256' }), { redirect: 'manual' });

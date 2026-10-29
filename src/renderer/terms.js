@@ -28,7 +28,7 @@ export class TermView {
       this.el.classList.remove('drop-files');
       if (!isFiles(e)) return;
       e.preventDefault();
-      const paths = [...e.dataTransfer.files].map((f) => window.atm.pathForFile(f)).filter(Boolean);
+      const paths = [...e.dataTransfer.files].map((f) => window.termclaw.pathForFile(f)).filter(Boolean);
       if (paths.length && onDropFiles) onDropFiles(id, paths);
     });
     this.term = new Terminal({
@@ -42,11 +42,11 @@ export class TermView {
     });
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
-    this.term.loadAddon(new WebLinksAddon((e, uri) => window.atm.call('openExternal', uri)));
+    this.term.loadAddon(new WebLinksAddon((e, uri) => window.termclaw.call('openExternal', uri)));
     this.opened = false;
     this.lastSize = null;
 
-    this.term.onData((d) => window.atm.call('write', id, d));
+    this.term.onData((d) => window.termclaw.call('write', id, d));
     this.term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -116,7 +116,7 @@ export class TermView {
     if (key !== this.lastSize) {
       this.lastSize = key;
       // The remote program gets the new size and may re-wrap.
-      window.atm.call('resize', this.id, cols, rows);
+      window.termclaw.call('resize', this.id, cols, rows);
     }
   }
 

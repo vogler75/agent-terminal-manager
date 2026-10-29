@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
     oauthAllowedGroup: '', // empty = every user of the provider application
     oauthFullGroup: '', // empty = full access for all; otherwise others are read-only
     oauthScopes: 'openid profile email',
-    // MCP URL as clients reach it through a reverse proxy / tunnel, e.g. https://atm.example.com/mcp
+    // MCP URL as clients reach it through a reverse proxy / tunnel, e.g. https://termclaw.example.com/mcp
     publicUrl: '',
   },
 };
@@ -51,6 +51,8 @@ const PROJECT_DEFAULTS = {
   keepAlive: true,
   keepAliveInterval: 30,
   keepAliveCountMax: 3,
+  x11: 'off', // ssh X11 forwarding: off | wsl | display
+  x11Display: '', // for 'display'; empty = DISPLAY of the app, on Windows localhost:0.0
   tmux: true,
   autoReconnect: false,
   thresholdSec: null, // null = global default

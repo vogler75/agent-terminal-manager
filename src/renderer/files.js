@@ -2,7 +2,7 @@
 // and a file browser to look around, upload and download.
 import { h, clear, toast, modal, confirmDialog, prompt, fmtTime } from './ui.js';
 
-const call = (m, ...a) => window.atm.call(m, ...a);
+const call = (m, ...a) => window.termclaw.call(m, ...a);
 const base = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
 
 export function fmtSize(n) {
@@ -15,7 +15,7 @@ export function fmtSize(n) {
 
 // Progress toast for a transfer; returns {jobId, done(text?)}.
 const jobs = new Map();
-window.atm.on('files:progress', ({ jobId, done, total }) => {
+window.termclaw.on('files:progress', ({ jobId, done, total }) => {
   const j = jobs.get(jobId);
   if (j) j.el.textContent = `${j.label} ${total ? Math.round((done / total) * 100) + '%' : ''} (${fmtSize(done)}${total ? ' of ' + fmtSize(total) : ''})`;
 });
@@ -128,7 +128,7 @@ export async function openBrowser(ctx, projectId, dir) {
     list.classList.remove('drop-files');
     if (!isFiles(e)) return;
     e.preventDefault();
-    doUpload([...e.dataTransfer.files].map((f) => window.atm.pathForFile(f)).filter(Boolean));
+    doUpload([...e.dataTransfer.files].map((f) => window.termclaw.pathForFile(f)).filter(Boolean));
   });
 
   const btn = (label, title, onclick) => h('button', { title, onclick }, label);

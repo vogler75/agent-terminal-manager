@@ -82,7 +82,7 @@ if (-not $Yes -and -not $DryRun) {
 }
 
 Run git @('push', 'origin', 'main') -Changes
-Run git @('tag', '-a', $tag, '-m', "Agent Terminal Manager $version") -Changes
+Run git @('tag', '-a', $tag, '-m', "TermClaw $version") -Changes
 Run git @('push', 'origin', $tag) -Changes
 
 $remote = GitOut @('remote', 'get-url', 'origin')

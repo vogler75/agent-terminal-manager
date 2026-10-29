@@ -157,8 +157,8 @@ class TerminalSession extends BaseSession {
         cols: this.cols,
         rows: this.rows,
         cwd: spec.cwd,
-        // ATM_SID marks the shell (WSLENV passes it into WSL) so file transfers can find its directory.
-        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ATM_SESSION: this.name, ATM_SID: this.id, WSLENV: [process.env.WSLENV, 'ATM_SID/u'].filter(Boolean).join(':') },
+        // TERMCLAW_SID marks the shell (WSLENV passes it into WSL) so file transfers can find its directory.
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERMCLAW_SESSION: this.name, TERMCLAW_SID: this.id, WSLENV: [process.env.WSLENV, 'TERMCLAW_SID/u'].filter(Boolean).join(':'), ...spec.env },
         useConpty: true,
       });
     } catch (e) {
@@ -182,7 +182,7 @@ class TerminalSession extends BaseSession {
   _fail(message) {
     this.error = message;
     this.exitCode = -1;
-    const text = `\r\n\x1b[31m[atm] ${message}\x1b[0m\r\n`;
+    const text = `\r\n\x1b[31m[termclaw] ${message}\x1b[0m\r\n`;
     this._onData(text, true);
     this.setStatus('error', message);
     this.mgr.emit('exit', this);
@@ -214,7 +214,7 @@ class TerminalSession extends BaseSession {
     this.exitCode = code;
     if (this.userClosed) return;
     const msg = code === 0 ? 'Session ended' : `Connection closed (exit code ${code})`;
-    this._onData(`\r\n\x1b[33m[atm] ${msg}\x1b[0m\r\n`, true);
+    this._onData(`\r\n\x1b[33m[termclaw] ${msg}\x1b[0m\r\n`, true);
     if (code !== 0) this.error = msg;
     this.setStatus(code === 0 ? 'exited' : 'error', msg);
     this.mgr.emit('exit', this);
@@ -222,7 +222,7 @@ class TerminalSession extends BaseSession {
     if (project && project.autoReconnect && code !== 0 && this.reconnectAttempts < 20) {
       const delay = Math.min(30000, 2000 * 2 ** this.reconnectAttempts);
       this.reconnectAttempts++;
-      this._onData(`\x1b[33m[atm] Reconnecting in ${Math.round(delay / 1000)} s...\x1b[0m\r\n`, true);
+      this._onData(`\x1b[33m[termclaw] Reconnecting in ${Math.round(delay / 1000)} s...\x1b[0m\r\n`, true);
       this._reconnectTimer = setTimeout(() => { if (!this.pty && !this.userClosed) this.spawn(); }, delay);
     }
   }

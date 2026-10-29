@@ -89,8 +89,8 @@ function mergeJsonServers(content, servers, managed, { key, toEntry, wrap }) {
 }
 
 // TOML: we own a marked block; everything outside it stays untouched.
-const BLOCK_START = '# >>> agent-terminal-manager (managed, do not edit) >>>';
-const BLOCK_END = '# <<< agent-terminal-manager <<<';
+const BLOCK_START = '# >>> termclaw (managed, do not edit) >>>';
+const BLOCK_END = '# <<< termclaw <<<';
 
 const tomlStr = (s) => JSON.stringify(String(s)); // TOML basic strings use JSON-compatible escapes
 const tomlKey = (k) => (/^[A-Za-z0-9_-]+$/.test(k) ? k : tomlStr(k));

@@ -19,9 +19,14 @@ const secrets = require('./secrets');
 const crypto = require('crypto');
 
 // Allow an isolated data directory (used by tests and for running several profiles).
-if (process.env.ATM_USER_DATA) app.setPath('userData', path.resolve(process.env.ATM_USER_DATA));
+if (process.env.TERMCLAW_USER_DATA) app.setPath('userData', path.resolve(process.env.TERMCLAW_USER_DATA));
+else {
+  // Renamed from Agent Terminal Manager: move the old data folder over so settings and projects are kept.
+  const old = path.join(app.getPath('appData'), 'Agent Terminal Manager');
+  try { if (fs.existsSync(old) && !fs.existsSync(app.getPath('userData'))) fs.renameSync(old, app.getPath('userData')); } catch {}
+}
 
-if (!process.env.ATM_USER_DATA && !app.requestSingleInstanceLock()) {
+if (!process.env.TERMCLAW_USER_DATA && !app.requestSingleInstanceLock()) {
   app.quit();
 }
 
@@ -106,7 +111,7 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.ATM_USER_DATA) global.__atm = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
+  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
 }
 
 let activeSessionId = null;
@@ -250,7 +255,7 @@ const api = {
     return s;
   },
   exportConfig: async () => {
-    const r = await dialog.showSaveDialog(win, { defaultPath: 'agent-terminal-manager.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
+    const r = await dialog.showSaveDialog(win, { defaultPath: 'termclaw.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
     if (r.canceled || !r.filePath) return null;
     fs.writeFileSync(r.filePath, store.exportJson());
     return r.filePath;
@@ -490,7 +495,7 @@ const api = {
 };
 
 function bridgePath() {
-  const p = path.join(__dirname, '..', '..', 'dist', 'atm-mcp-stdio.js');
+  const p = path.join(__dirname, '..', '..', 'dist', 'termclaw-mcp-stdio.js');
   return p.replace('app.asar', 'app.asar.unpacked');
 }
 
@@ -507,7 +512,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 500,
     backgroundColor: '#14161b',
-    title: 'Agent Terminal Manager',
+    title: 'TermClaw',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -520,11 +525,11 @@ function createWindow() {
   // If the renderer dies, sessions keep running in this process: log why and reload the window,
   // which restores all terminals from the main-process mirror.
   win.webContents.on('render-process-gone', (_e, details) => {
-    console.error('[atm] renderer gone:', JSON.stringify(details));
+    console.error('[termclaw] renderer gone:', JSON.stringify(details));
     if (audit) audit.add({ source: 'app', action: 'renderer.crash', detail: JSON.stringify(details) });
     if (details.reason !== 'clean-exit' && win && !win.isDestroyed()) setTimeout(() => { if (win && !win.isDestroyed()) win.reload(); }, 500);
   });
-  win.webContents.on('unresponsive', () => console.error('[atm] renderer unresponsive'));
+  win.webContents.on('unresponsive', () => console.error('[termclaw] renderer unresponsive'));
   // Links clicked in terminals open in the system browser.
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
 }
@@ -549,13 +554,13 @@ function buildMenu() {
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
 app.whenReady().then(async () => {
-  if (process.platform === 'win32') app.setAppUserModelId('com.vogler.agent-terminal-manager');
+  if (process.platform === 'win32') app.setAppUserModelId('com.vogler.termclaw');
   setup();
   buildMenu();
   createWindow();
   await mcp.start();
   win.webContents.once('did-finish-load', () => {
-    if (process.env.ATM_NO_RESTORE !== '1') sessions.restoreAll();
+    if (process.env.TERMCLAW_NO_RESTORE !== '1') sessions.restoreAll();
   });
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });

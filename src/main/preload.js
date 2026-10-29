@@ -8,7 +8,7 @@ ipcRenderer.on('event', (_e, { channel, payload }) => {
   }
 });
 
-contextBridge.exposeInMainWorld('atm', {
+contextBridge.exposeInMainWorld('termclaw', {
   call: (method, ...args) => ipcRenderer.invoke('api', method, ...args),
   // Local path of a file dropped from the Explorer / Finder.
   pathForFile: (file) => webUtils.getPathForFile(file),

@@ -13,14 +13,14 @@ const AGENT = `node ${path.join(__dirname, 'demo-acp-agent.js').replace(/\\/g, '
 const IS_WIN = process.platform === 'win32';
 
 const config = {
-  settings: { fontSize: 13, notifications: false, mcp: { enabled: true, port: 47000 + Math.floor(Math.random() * 800), bind: '127.0.0.1', oauth: true, oauthMode: 'builtin', publicUrl: 'https://atm.example.com/mcp' } },
+  settings: { fontSize: 13, notifications: false, mcp: { enabled: true, port: 47000 + Math.floor(Math.random() * 800), bind: '127.0.0.1', oauth: true, oauthMode: 'builtin', publicUrl: 'https://termclaw.example.com/mcp' } },
   hosts: [
     { id: 'h1', name: 'devbox-1', hostname: 'devbox-1.lan', user: 'dev', port: 22, workspace: '~/work', tags: ['linux', 'gpu'] },
     { id: 'h2', name: 'devbox-2', hostname: 'devbox-2.lan', user: 'dev', port: 22, workspace: '~/work', tags: ['linux'] },
   ],
   projects: [
     {
-      id: 'p-atm', name: 'agent-terminal-manager', type: 'local', directory: ROOT, tmux: false, thresholdSec: 3,
+      id: 'p-termclaw', name: 'termclaw', type: 'local', directory: ROOT, tmux: false, thresholdSec: 3,
       terminals: [{ name: 'tests', command: '' }, { name: 'git', command: '' }],
       commands: [{ name: 'Unit tests', command: 'npm test' }, { name: 'Git status', command: 'git status -sb' }, { name: 'Build', command: '.\\build.bat dir' }],
       acpCommands: { custom: AGENT },
@@ -42,7 +42,7 @@ const config = {
 
 (async () => {
   fs.mkdirSync(OUT, { recursive: true });
-  const skills = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-shot-skills-'));
+  const skills = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-shot-skills-'));
   for (const [name, desc] of [['code-review', 'Review a change for bugs, tests and naming'], ['release-notes', 'Write release notes from the git log']]) {
     fs.mkdirSync(path.join(skills, name));
     fs.writeFileSync(path.join(skills, name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${desc}\n---\n\n# ${name}\n`);
@@ -52,20 +52,20 @@ const config = {
   const { app, page } = await launch({ config });
   await page.setViewportSize({ width: 1440, height: 880 });
   const shot = async (name) => { await sleep(500); await page.screenshot({ path: path.join(OUT, name + '.png') }); console.log('saved', name); };
-  const atm = (fn, arg) => app.evaluate(fn, arg);
-  const send = (id, text) => atm((_e, a) => globalThis.__atm.sessions.get(a.id).send(a.text), { id, text });
-  const open = (pid, opts) => atm((_e, a) => globalThis.__atm.sessions.open(a.pid, a.opts).info(), { pid, opts });
-  const api = (name, ...a) => page.evaluate(([n, args]) => window.atm.call(n, ...args), [name, a]);
+  const termclaw = (fn, arg) => app.evaluate(fn, arg);
+  const send = (id, text) => termclaw((_e, a) => globalThis.__termclaw.sessions.get(a.id).send(a.text), { id, text });
+  const open = (pid, opts) => termclaw((_e, a) => globalThis.__termclaw.sessions.open(a.pid, a.opts).info(), { pid, opts });
+  const api = (name, ...a) => page.evaluate(([n, args]) => window.termclaw.call(n, ...args), [name, a]);
 
   try {
     // Terminals: tests and git log in this repository, plus a demo ACP agent session
-    await page.click('#sidebar .proj-name:text("agent-terminal-manager")');
-    const tests = (await open('p-atm', { name: 'tests' })).id;
-    const git = (await open('p-atm', { name: 'git' })).id;
+    await page.click('#sidebar .proj-name:text("termclaw")');
+    const tests = (await open('p-termclaw', { name: 'tests' })).id;
+    const git = (await open('p-termclaw', { name: 'git' })).id;
     await sleep(2500);
     await send(git, 'git log --oneline --graph --decorate -25');
     await send(tests, IS_WIN ? 'Clear-Host; npm test' : 'clear; npm test');
-    const agent = (await open('p-atm', { kind: 'acp', acpAgent: 'custom', name: 'reviewer' })).id;
+    const agent = (await open('p-termclaw', { kind: 'acp', acpAgent: 'custom', name: 'reviewer' })).id;
     await sleep(2500);
     await api('agentSend', agent, 'Review the checkout flow for concurrency bugs.');
     await sleep(8000);
@@ -89,7 +89,7 @@ const config = {
     await shot('overview');
 
     // 5) File browser
-    await page.click('#sidebar .proj-name:text("agent-terminal-manager")');
+    await page.click('#sidebar .proj-name:text("termclaw")');
     await page.click(`.tab:has-text("git")`).catch(() => {});
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await page.waitForSelector('.file-list td:has-text("src")');
@@ -121,7 +121,7 @@ const config = {
     await shot('library');
 
     // 10) Coding agents menu of the project
-    await page.click('#sidebar .proj-name:text("agent-terminal-manager")');
+    await page.click('#sidebar .proj-name:text("termclaw")');
     await page.getByRole('button', { name: 'Agents ▾' }).click();
     await shot('agents-menu');
     await page.keyboard.press('Escape');

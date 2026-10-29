@@ -209,7 +209,7 @@ class AcpSession extends BaseSession {
       const init = await conn.request('initialize', {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: 'agent-terminal-manager', version: require('../../package.json').version },
+        clientInfo: { name: 'termclaw', version: require('../../package.json').version },
       }, { timeout: 60000 });
       this.agentCaps = init.agentCapabilities || {};
       this.authMethods = init.authMethods || [];

@@ -2,10 +2,10 @@
 // End-to-end acceptance test. Drives the real Electron app via Playwright.
 //
 // Optional environment:
-//   ATM_E2E_SSH=user@host:port   SSH target with key auth and tmux (enables SSH/tmux/forward tests)
-//   ATM_E2E_WSL=Ubuntu           WSL distribution with tmux (Windows only)
-//   ATM_E2E_OPENCODE=1           run OpenCode agent + orchestrator tests (needs a working model)
-//   ATM_E2E_SHOTS=dir            write screenshots there
+//   TERMCLAW_E2E_SSH=user@host:port   SSH target with key auth and tmux (enables SSH/tmux/forward tests)
+//   TERMCLAW_E2E_WSL=Ubuntu           WSL distribution with tmux (Windows only)
+//   TERMCLAW_E2E_OPENCODE=1           run OpenCode agent + orchestrator tests (needs a working model)
+//   TERMCLAW_E2E_SHOTS=dir            write screenshots there
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
@@ -16,14 +16,14 @@ const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/cli
 const { ResourceUpdatedNotificationSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const IS_WIN = process.platform === 'win32';
-const SHOTS = process.env.ATM_E2E_SHOTS || path.join(__dirname, 'shots');
+const SHOTS = process.env.TERMCLAW_E2E_SHOTS || path.join(__dirname, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const MCP_PORT = 47000 + Math.floor(Math.random() * 800);
 
-const sshSpec = process.env.ATM_E2E_SSH ? /^(?:(.+)@)?([^:]+)(?::(\d+))?$/.exec(process.env.ATM_E2E_SSH) : null;
+const sshSpec = process.env.TERMCLAW_E2E_SSH ? /^(?:(.+)@)?([^:]+)(?::(\d+))?$/.exec(process.env.TERMCLAW_E2E_SSH) : null;
 const SSH = sshSpec ? { user: sshSpec[1] || '', hostname: sshSpec[2], port: Number(sshSpec[3] || 22) } : null;
-const WSL = IS_WIN ? process.env.ATM_E2E_WSL : null;
-const OPENCODE = process.env.ATM_E2E_OPENCODE === '1';
+const WSL = IS_WIN ? process.env.TERMCLAW_E2E_WSL : null;
+const OPENCODE = process.env.TERMCLAW_E2E_OPENCODE === '1';
 const RUN = 'r' + Date.now().toString(36).slice(-5);
 
 const results = [];
@@ -58,14 +58,14 @@ function sshRun(script) {
 
 // Main-process helpers (run inside Electron main via app.evaluate).
 const M = (app) => ({
-  sessions: () => app.evaluate(() => globalThis.__atm.sessions.list().map((s) => s.info())),
-  output: (id, lines = 60) => app.evaluate((_e, a) => { const s = globalThis.__atm.sessions.get(a.id); return s ? s.readOutput({ lines: a.lines }).text : null; }, { id, lines }),
-  send: (id, text) => app.evaluate((_e, a) => globalThis.__atm.sessions.get(a.id).send(a.text), { id, text }),
-  status: (id) => app.evaluate((_e, id) => { const s = globalThis.__atm.sessions.get(id); return s && s.status; }, id),
-  info: (id) => app.evaluate((_e, id) => { const s = globalThis.__atm.sessions.get(id); return s && { ...s.info(), cols: s.cols, rows: s.rows, spec: s.spec }; }, id),
-  open: (pid, opts) => app.evaluate((_e, a) => globalThis.__atm.sessions.open(a.pid, a.opts || {}).info(), { pid, opts }),
-  close: (id, killTmux) => app.evaluate((_e, a) => globalThis.__atm.sessions.close(a.id, { killTmux: a.killTmux }), { id, killTmux }),
-  find: (pid, name) => app.evaluate((_e, a) => { const s = globalThis.__atm.sessions.list(a.pid).find((x) => x.name === a.name); return s ? s.id : null; }, { pid, name }),
+  sessions: () => app.evaluate(() => globalThis.__termclaw.sessions.list().map((s) => s.info())),
+  output: (id, lines = 60) => app.evaluate((_e, a) => { const s = globalThis.__termclaw.sessions.get(a.id); return s ? s.readOutput({ lines: a.lines }).text : null; }, { id, lines }),
+  send: (id, text) => app.evaluate((_e, a) => globalThis.__termclaw.sessions.get(a.id).send(a.text), { id, text }),
+  status: (id) => app.evaluate((_e, id) => { const s = globalThis.__termclaw.sessions.get(id); return s && s.status; }, id),
+  info: (id) => app.evaluate((_e, id) => { const s = globalThis.__termclaw.sessions.get(id); return s && { ...s.info(), cols: s.cols, rows: s.rows, spec: s.spec }; }, id),
+  open: (pid, opts) => app.evaluate((_e, a) => globalThis.__termclaw.sessions.open(a.pid, a.opts || {}).info(), { pid, opts }),
+  close: (id, killTmux) => app.evaluate((_e, a) => globalThis.__termclaw.sessions.close(a.id, { killTmux: a.killTmux }), { id, killTmux }),
+  find: (pid, name) => app.evaluate((_e, a) => { const s = globalThis.__termclaw.sessions.list(a.pid).find((x) => x.name === a.name); return s ? s.id : null; }, { pid, name }),
 });
 
 const cfgBase = () => {
@@ -74,8 +74,8 @@ const cfgBase = () => {
   ];
   const hosts = [];
   if (SSH) {
-    hosts.push({ id: 'h1', name: 'devbox', hostname: SSH.hostname, port: SSH.port, user: SSH.user, workspace: `~/atm-e2e-${RUN}`, tags: ['test'] });
-    projects.push({ id: 'p-ssh', name: `remote-${RUN}`, type: 'ssh', hostId: 'h1', directory: `~/atm-e2e-${RUN}/proj1`, tmux: true, keepAlive: true, thresholdSec: 2, forwards: [{ local: MCP_PORT + 900, remote: MCP_PORT + 901 }] });
+    hosts.push({ id: 'h1', name: 'devbox', hostname: SSH.hostname, port: SSH.port, user: SSH.user, workspace: `~/termclaw-e2e-${RUN}`, tags: ['test'] });
+    projects.push({ id: 'p-ssh', name: `remote-${RUN}`, type: 'ssh', hostId: 'h1', directory: `~/termclaw-e2e-${RUN}/proj1`, tmux: true, keepAlive: true, thresholdSec: 2, forwards: [{ local: MCP_PORT + 900, remote: MCP_PORT + 901 }] });
   }
   if (WSL) projects.push({ id: 'p-wsl', name: `wsl-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: true, thresholdSec: 2 });
   if (WSL) projects.push({ id: 'p-files', name: `files-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: false, thresholdSec: 2 });
@@ -83,8 +83,8 @@ const cfgBase = () => {
 };
 
 (async () => {
-  if (SSH) sshRun(`mkdir -p ~/atm-e2e-${RUN}/proj1`);
-  let { app, page, dir, errors } = await launch({ config: cfgBase(), env: { ATM_NO_RESTORE: '0' } });
+  if (SSH) sshRun(`mkdir -p ~/termclaw-e2e-${RUN}/proj1`);
+  let { app, page, dir, errors } = await launch({ config: cfgBase(), env: { TERMCLAW_NO_RESTORE: '0' } });
   let m = M(app);
   const shot = (n) => page.screenshot({ path: path.join(SHOTS, n + '.png') }).catch(() => {});
   const ids = {};
@@ -102,9 +102,9 @@ const cfgBase = () => {
     ids.local = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-local')?.id, { msg: 'session' });
     await waitFor(async () => /PS |\$ |% /.test((await m.output(ids.local)) || ''), { msg: 'prompt', timeout: 20000 });
     await sleep(800); // let the shell finish its startup before typing
-    await page.keyboard.type('echo hello-atm-' + RUN);
+    await page.keyboard.type('echo hello-termclaw-' + RUN);
     await page.keyboard.press('Enter');
-    await waitFor(async () => ((await m.output(ids.local)) || '').split('\n').some((l) => l.trim() === 'hello-atm-' + RUN), { msg: 'echo output' });
+    await waitFor(async () => ((await m.output(ids.local)) || '').split('\n').some((l) => l.trim() === 'hello-termclaw-' + RUN), { msg: 'echo output' });
     await shot('p1-local');
   });
 
@@ -120,7 +120,7 @@ const cfgBase = () => {
   });
 
   await step('Files: file browser on a local project — navigate, new folder, folders listed first', async () => {
-    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'atm-browse-'));
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termclaw-browse-'));
     fs.writeFileSync(path.join(dir, 'readme.txt'), 'hi');
     await page.getByRole('button', { name: 'Files', exact: true }).click();
     await page.waitForSelector('.file-browser');
@@ -180,7 +180,7 @@ const cfgBase = () => {
   });
 
   await step('P2 project editor: choose the agent type of the default session (ACP Copilot)', async () => {
-    await app.evaluate(() => globalThis.__atm.store.saveProject({ id: 'p-type', name: 'typen', type: 'local', tmux: false }));
+    await app.evaluate(() => globalThis.__termclaw.store.saveProject({ id: 'p-type', name: 'typen', type: 'local', tmux: false }));
     await page.click('#sidebar .proj-name:text("typen")');
     await page.click('#main .main-head button.icon[title="Edit project"]');
     const typeSelect = page.locator('.modal select:has(option[value="acp:copilot"])').first();
@@ -193,24 +193,24 @@ const cfgBase = () => {
     await page.waitForSelector('.modal label:text("Copilot command")');
     assert.strictEqual(await cmdInput.inputValue(), 'copilot');
     await page.locator('.modal button.primary').click();
-    await waitFor(async () => { const d = await app.evaluate(() => globalThis.__atm.store.getProject('p-type').defaultSession); return d.kind === 'acp' && d.acpAgent === 'copilot' && d.name === 'copilot'; }, { msg: 'default session saved as Copilot via ACP' });
-    const cmds = JSON.parse(JSON.stringify(await app.evaluate(() => globalThis.__atm.store.getProject('p-type').acpCommands)));
+    await waitFor(async () => { const d = await app.evaluate(() => globalThis.__termclaw.store.getProject('p-type').defaultSession); return d.kind === 'acp' && d.acpAgent === 'copilot' && d.name === 'copilot'; }, { msg: 'default session saved as Copilot via ACP' });
+    const cmds = JSON.parse(JSON.stringify(await app.evaluate(() => globalThis.__termclaw.store.getProject('p-type').acpCommands)));
     assert.deepStrictEqual(cmds, { custom: 'my-agent --acp' }, 'custom command kept, built-in defaults not stored');
     await page.click('#main .main-head button.icon[title="Edit project"]');
     assert.strictEqual(await page.locator('.modal select:has(option[value="acp:copilot"])').first().inputValue(), 'acp:copilot', 'type preselected');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await app.evaluate(() => globalThis.__atm.store.deleteProject('p-type'));
+    await app.evaluate(() => globalThis.__termclaw.store.deleteProject('p-type'));
   });
 
   await step('P2 export / import JSON and no passwords stored', async () => {
-    const text = await page.evaluate(() => window.atm.call('exportConfigText'));
+    const text = await page.evaluate(() => window.termclaw.call('exportConfigText'));
     const data = JSON.parse(text);
     assert.ok(data.projects.length >= 1);
     data.projects.push({ id: 'p-imp', name: 'importiert', type: 'local', password: 'geheim' });
-    await page.evaluate((t) => window.atm.call('importConfigText', t, true), JSON.stringify(data));
+    await page.evaluate((t) => window.termclaw.call('importConfigText', t, true), JSON.stringify(data));
     await page.waitForSelector('#sidebar .proj-name:text("importiert")');
     await waitFor(() => { const raw = fs.readFileSync(path.join(dir, 'config.json'), 'utf8'); return raw.includes('importiert') && !raw.includes('geheim'); }, { msg: 'password stripped' });
-    await page.evaluate(() => window.atm.call('deleteProject', 'p-imp'));
+    await page.evaluate(() => window.termclaw.call('deleteProject', 'p-imp'));
   });
 
   // ---------------- Phase 5 (local) ----------------
@@ -225,18 +225,18 @@ const cfgBase = () => {
   });
 
   await step('P5 BEL sets status to waiting immediately; desktop notification', async () => {
-    await app.evaluate(() => { globalThis.__atm.store.getProject('p-local').thresholdSec = 30; });
+    await app.evaluate(() => { globalThis.__termclaw.store.getProject('p-local').thresholdSec = 30; });
     await page.click('#sidebar button:has-text("Overview")'); // not focused on the session -> notification expected
-    const n0 = await app.evaluate(() => globalThis.__atm.notificationLog.length);
+    const n0 = await app.evaluate(() => globalThis.__termclaw.notificationLog.length);
     await m.send(ids.local, IS_WIN ? 'Start-Sleep 1; Write-Host "bell$([char]7)"' : 'sleep 1; printf "bell\\a\\n"');
     await waitFor(async () => (await m.status(ids.local)) === 'working', { msg: 'working', timeout: 5000 });
     const t = Date.now();
     await waitFor(async () => (await m.status(ids.local)) === 'waiting', { msg: 'waiting by bell', timeout: 8000 });
     assert.ok(Date.now() - t < 6000, 'waiting much earlier than threshold 30 s');
-    await waitFor(async () => (await app.evaluate(() => globalThis.__atm.notificationLog.length)) > n0, { msg: 'notification' });
-    const last = await app.evaluate(() => globalThis.__atm.notificationLog.slice(-1)[0]);
+    await waitFor(async () => (await app.evaluate(() => globalThis.__termclaw.notificationLog.length)) > n0, { msg: 'notification' });
+    const last = await app.evaluate(() => globalThis.__termclaw.notificationLog.slice(-1)[0]);
     assert.match(last.body, /bell|waiting/i);
-    await app.evaluate(() => { globalThis.__atm.store.getProject('p-local').thresholdSec = 2; });
+    await app.evaluate(() => { globalThis.__termclaw.store.getProject('p-local').thresholdSec = 2; });
   });
 
   // ---------------- Phase 6 (saved command) ----------------
@@ -274,14 +274,14 @@ const cfgBase = () => {
     await page.waitForSelector('.ov-group');
     const groups = await page.$$eval('.ov-group .ov-head', (els) => els.map((e) => e.textContent));
     assert.ok(groups.some((g) => g.includes('lokal')));
-    const fs = await page.evaluate((id) => window.__atm.terms.get(id).term.options.fontSize, ids.local);
+    const fs = await page.evaluate((id) => window.__termclaw.terms.get(id).term.options.fontSize, ids.local);
     assert.ok(fs < 13, 'overview uses smaller font size, got ' + fs);
     const zoom = await page.$eval('.ov-group .termwrap', (e) => getComputedStyle(e).zoom + '|' + getComputedStyle(e).transform);
     assert.ok(/^1\|none$/.test(zoom) || zoom.startsWith('1|none'), 'no CSS zoom/transform: ' + zoom);
     await shot('p4-overview');
     await page.click('.ov-group .tile-click >> nth=0');
     await page.waitForSelector('.tabs .tab.active');
-    const fs2 = await page.evaluate((id) => window.__atm.terms.get(id).term.options.fontSize, ids.local);
+    const fs2 = await page.evaluate((id) => window.__termclaw.terms.get(id).term.options.fontSize, ids.local);
     assert.strictEqual(fs2, 13);
   });
 
@@ -292,14 +292,14 @@ const cfgBase = () => {
     await sleep(800);
     await page.click('#sidebar .proj-name:text("lokal")');
     await page.click(`#sidebar .sess:has-text("shell")`);
-    const text = await page.evaluate((id) => { const t = window.__atm.terms.get(id).term; const b = t.buffer.active; let s = ''; for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true) + '\n'; return s; }, ids.local);
+    const text = await page.evaluate((id) => { const t = window.__termclaw.terms.get(id).term; const b = t.buffer.active; let s = ''; for (let i = 0; i < b.length; i++) s += b.getLine(i).translateToString(true) + '\n'; return s; }, ids.local);
     assert.ok(text.includes('before-switch-' + RUN) && text.includes('while-hidden-' + RUN), 'renderer buffer has both lines');
   });
 
   await step('Sidebar: reorder projects and sessions by drag & drop (kept in config and tabs)', async () => {
-    await app.evaluate(() => { for (const [id, name] of [['p-ord1', 'ord-a'], ['p-ord2', 'ord-b']]) globalThis.__atm.store.saveProject({ id, name, type: 'local', tmux: false }); });
+    await app.evaluate(() => { for (const [id, name] of [['p-ord1', 'ord-a'], ['p-ord2', 'ord-b']]) globalThis.__termclaw.store.saveProject({ id, name, type: 'local', tmux: false }); });
     await page.waitForSelector('#sidebar .proj-name:text("ord-b")');
-    const order = () => app.evaluate(() => globalThis.__atm.store.data.projects.map((p) => p.name));
+    const order = () => app.evaluate(() => globalThis.__termclaw.store.data.projects.map((p) => p.name));
     const before = await order();
     // Drag "ord-b" onto the upper half of the first project -> it becomes first.
     const first = page.locator('#sidebar .proj-head').first();
@@ -309,13 +309,13 @@ const cfgBase = () => {
     assert.strictEqual((await order()).length, before.length);
     assert.ok(box);
     // Sessions of "lokal": drag the last one above the first.
-    const sessOrder = () => app.evaluate(() => globalThis.__atm.sessions.list('p-local').map((s) => s.name));
+    const sessOrder = () => app.evaluate(() => globalThis.__termclaw.sessions.list('p-local').map((s) => s.name));
     const s0 = await sessOrder();
     const lastName = s0[s0.length - 1];
     const firstRow = page.locator('#sidebar .proj:has(.proj-name:text("lokal")) .sess').first();
     await page.locator(`#sidebar .proj:has(.proj-name:text("lokal")) .sess:has(.sess-name:text-is("${lastName}"))`).dragTo(firstRow, { targetPosition: { x: 40, y: 2 } });
     await waitFor(async () => (await sessOrder())[0] === lastName, { msg: 'session moved to the top' });
-    const saved = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').openSessions.map((s) => s.name));
+    const saved = await app.evaluate(() => globalThis.__termclaw.store.getProject('p-local').openSessions.map((s) => s.name));
     assert.deepStrictEqual(saved, await sessOrder(), 'order saved for restart');
     await page.click('#sidebar .proj-name:text("lokal")');
     await waitFor(async () => (await page.$$eval('.tabs .tab', (t) => t.map((x) => x.textContent.replace('×', '').trim())))[0] === lastName, { msg: 'tabs follow the order' });
@@ -323,7 +323,7 @@ const cfgBase = () => {
     await page.click(`#sidebar .proj:has(.proj-name:text("lokal")) .sess:has(.sess-name:text-is("${lastName}"))`, { button: 'right' });
     await page.click('.menu div:text("Move down")');
     await waitFor(async () => (await sessOrder())[1] === lastName, { msg: 'moved down by menu' });
-    await app.evaluate(() => { globalThis.__atm.store.deleteProject('p-ord1'); globalThis.__atm.store.deleteProject('p-ord2'); });
+    await app.evaluate(() => { globalThis.__termclaw.store.deleteProject('p-ord1'); globalThis.__termclaw.store.deleteProject('p-ord2'); });
   });
 
   await step('P3 rename and close sessions in the tree', async () => {
@@ -343,22 +343,22 @@ const cfgBase = () => {
     ids.ssh = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-ssh')?.id, { msg: 'ssh session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.ssh)) || ''), { msg: 'remote prompt', timeout: 25000 });
     await m.send(ids.ssh, 'pwd; tmux display -p "tmux:#S"');
-    await waitFor(async () => { const o = await m.output(ids.ssh); return o.includes(`/atm-e2e-${RUN}/proj1`) && o.includes(`tmux:atm-remote-${RUN}-shell`); }, { msg: 'pwd + tmux name' });
+    await waitFor(async () => { const o = await m.output(ids.ssh); return o.includes(`/termclaw-e2e-${RUN}/proj1`) && o.includes(`tmux:termclaw-remote-${RUN}-shell`); }, { msg: 'pwd + tmux name' });
     await shot('p3-ssh');
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   await step('P3 keep-alive sets ServerAliveInterval / ServerAliveCountMax', async () => {
     const info = await m.info(ids.ssh);
     const a = info.spec.args.join(' ');
     assert.match(a, /ServerAliveInterval=30/);
     assert.match(a, /ServerAliveCountMax=3/);
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   await step('P0/P3 tmux: process keeps running after disconnect; re-attach', async () => {
     await m.send(ids.ssh, 'for i in $(seq 1 2000); do echo tick-$i; sleep 0.5; done');
     await waitFor(async () => /tick-3/.test(await m.output(ids.ssh)), { msg: 'ticks' });
     // Simulate a lost connection: kill the local ssh process.
-    await app.evaluate((_e, id) => { globalThis.__atm.sessions.get(id).pty.kill(); }, ids.ssh);
+    await app.evaluate((_e, id) => { globalThis.__termclaw.sessions.get(id).pty.kill(); }, ids.ssh);
     await waitFor(async () => ['error', 'exited'].includes(await m.status(ids.ssh)), { msg: 'disconnected status' });
     await page.waitForSelector('.overlay-err button:has-text("Reconnect")', { timeout: 8000 });
     await shot('p3-disconnected');
@@ -370,17 +370,17 @@ const cfgBase = () => {
       return Math.max(...nums) > before + 3;
     }, { msg: 'ticks continued while disconnected', timeout: 20000 });
     const remote = sshRun('tmux ls');
-    assert.ok(remote.includes(`atm-remote-${RUN}-shell`), remote);
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+    assert.ok(remote.includes(`termclaw-remote-${RUN}-shell`), remote);
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   await step('Open point: automatic reconnect after a dropped connection', async () => {
-    await app.evaluate(() => { globalThis.__atm.store.getProject('p-ssh').autoReconnect = true; });
-    await app.evaluate((_e, id) => { globalThis.__atm.sessions.get(id).pty.kill(); }, ids.ssh);
+    await app.evaluate(() => { globalThis.__termclaw.store.getProject('p-ssh').autoReconnect = true; });
+    await app.evaluate((_e, id) => { globalThis.__termclaw.sessions.get(id).pty.kill(); }, ids.ssh);
     await waitFor(async () => ['error', 'exited'].includes(await m.status(ids.ssh)), { msg: 'dropped' });
     await waitFor(async () => /Reconnecting in/.test(await m.output(ids.ssh, 300)), { msg: 'reconnect notice' });
     await waitFor(async () => ['working', 'waiting'].includes(await m.status(ids.ssh)), { msg: 'reconnected automatically', timeout: 20000 });
-    await app.evaluate(() => { globalThis.__atm.store.getProject('p-ssh').autoReconnect = false; });
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+    await app.evaluate(() => { globalThis.__termclaw.store.getProject('p-ssh').autoReconnect = false; });
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   await step('P6 port forwarding active while session runs', async () => {
     const lp = MCP_PORT + 900;
@@ -389,27 +389,27 @@ const cfgBase = () => {
     const perl = 'use IO::Socket::INET; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die $!;'
       + ' while (my $c = $s->accept) { while (defined(my $l = <$c>)) { last if $l =~ /^\\r?\\n$/ } print $c "HTTP/1.0 200 OK\\r\\nContent-Type: text/html\\r\\n\\r\\n<html>Directory listing</html>"; close $c }';
     const b64 = Buffer.from(perl).toString('base64');
-    sshRun(`echo ${b64} | base64 -d > /tmp/atm-e2e-http-${RUN}.pl && tmux new-session -d -s atm-e2e-http-${RUN} "perl /tmp/atm-e2e-http-${RUN}.pl ${rp}"`);
-    await waitFor(async () => (await app.evaluate(() => globalThis.__atm.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
+    sshRun(`echo ${b64} | base64 -d > /tmp/termclaw-e2e-http-${RUN}.pl && tmux new-session -d -s termclaw-e2e-http-${RUN} "perl /tmp/termclaw-e2e-http-${RUN}.pl ${rp}"`);
+    await waitFor(async () => (await app.evaluate(() => globalThis.__termclaw.forwards.snapshot()))['p-ssh']?.status === 'active', { msg: 'forward active', timeout: 10000 });
     const body = await waitFor(async () => { const r = await fetch(`http://127.0.0.1:${lp}/`); return r.ok ? r.text() : null; }, { msg: 'http via forward', timeout: 15000 }).catch(async (e) => {
-      const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t atm-e2e-http-${RUN} 2>&1 | tail -5; tail -8 ~/sshd/log 2>/dev/null`);
+      const diag = sshRun(`curl -s -m 3 http://127.0.0.1:${rp}/ | head -c 200; echo; tmux capture-pane -p -t termclaw-e2e-http-${RUN} 2>&1 | tail -5; tail -8 ~/sshd/log 2>/dev/null`);
       const direct = await fetch(`http://127.0.0.1:${lp}/`).then((r) => r.status, (x) => String(x.cause || x));
       const fwd = JSON.stringify(require('child_process').spawnSync('lsof', ['-iTCP:' + lp, '-sTCP:LISTEN'], { encoding: 'utf8' }).stdout || '');
       throw new Error(`${e.message}\n   remote: ${diag.trim()}\n   local listener: ${fwd}\n   fetch: ${direct}`);
     });
     assert.match(body, /Directory listing|<html/i);
-    sshRun(`tmux kill-session -t atm-e2e-http-${RUN}`);
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+    sshRun(`tmux kill-session -t termclaw-e2e-http-${RUN}`);
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   await step('P3 connection errors are shown with reconnect button', async () => {
-    const p = await app.evaluate(() => globalThis.__atm.store.saveProject({ id: 'p-bad', name: 'kaputt', type: 'ssh', host: '127.0.0.1', port: 1, tmux: false, keepAlive: false }));
+    const p = await app.evaluate(() => globalThis.__termclaw.store.saveProject({ id: 'p-bad', name: 'kaputt', type: 'ssh', host: '127.0.0.1', port: 1, tmux: false, keepAlive: false }));
     await page.click('#sidebar .proj-name:text("kaputt")');
     await page.click('text=+ Open session');
     await page.waitForSelector('.overlay-err', { timeout: 15000 });
     const msg = await page.textContent('.overlay-err .msg');
     assert.match(msg, /exit code|Connection/i);
     await shot('p3-error');
-    await app.evaluate(() => { for (const s of globalThis.__atm.sessions.list('p-bad')) globalThis.__atm.sessions.close(s.id); globalThis.__atm.store.deleteProject('p-bad'); });
+    await app.evaluate(() => { for (const s of globalThis.__termclaw.sessions.list('p-bad')) globalThis.__termclaw.sessions.close(s.id); globalThis.__termclaw.store.deleteProject('p-bad'); });
     assert.ok(p);
   });
 
@@ -419,12 +419,12 @@ const cfgBase = () => {
     ids.wsl = await waitFor(async () => (await m.sessions()).find((s) => s.projectId === 'p-wsl')?.id, { msg: 'wsl session' });
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.wsl)) || ''), { msg: 'wsl prompt', timeout: 25000 });
     await m.send(ids.wsl, 'pwd; tmux display -p "tmux:#S"');
-    await waitFor(async () => { const o = await m.output(ids.wsl); return /^\/tmp$/m.test(o) && o.includes(`tmux:atm-wsl-${RUN}-shell`); }, { msg: 'pwd /tmp in tmux' });
-  }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
+    await waitFor(async () => { const o = await m.output(ids.wsl); return /^\/tmp$/m.test(o) && o.includes(`tmux:termclaw-wsl-${RUN}-shell`); }, { msg: 'pwd /tmp in tmux' });
+  }, { skip: WSL ? null : 'TERMCLAW_E2E_WSL not set' });
 
   await step('Files: a file dropped onto a WSL terminal goes to the shell’s current directory (tmux and plain shell)', async () => {
-    const dir = `/tmp/atm-e2e-files-${RUN}`;
-    const api = (name, ...a) => page.evaluate(([n, args]) => window.atm.call(n, ...args), [name, a]);
+    const dir = `/tmp/termclaw-e2e-files-${RUN}`;
+    const api = (name, ...a) => page.evaluate(([n, args]) => window.termclaw.call(n, ...args), [name, a]);
     // tmux: directory from the pane
     await m.send(ids.wsl, `mkdir -p ${dir}/tm && cd ${dir}/tm`);
     await waitFor(async () => (await api('filesDropTarget', ids.wsl)).dir === `${dir}/tm`, { msg: 'tmux pane directory' });
@@ -435,22 +435,22 @@ const cfgBase = () => {
     let target;
     await waitFor(async () => (target = await api('filesDropTarget', plain)).dir === `${dir}/plain`, { msg: 'plain shell directory' });
     assert.strictEqual(target.remote, true);
-    const local = path.join(require('os').tmpdir(), `atm-drop-${RUN}.txt`);
+    const local = path.join(require('os').tmpdir(), `termclaw-drop-${RUN}.txt`);
     fs.writeFileSync(local, 'dropped ✓');
     await api('filesUpload', 'p-files', [local], target.dir, 'e2e');
-    await m.send(plain, `cat atm-drop-${RUN}.txt; echo`);
+    await m.send(plain, `cat termclaw-drop-${RUN}.txt; echo`);
     await waitFor(async () => (await m.output(plain)).includes('dropped ✓'), { msg: 'uploaded file content' });
-    assert.deepStrictEqual(await api('filesExists', 'p-files', target.dir, [`atm-drop-${RUN}.txt`]), [`atm-drop-${RUN}.txt`]);
+    assert.deepStrictEqual(await api('filesExists', 'p-files', target.dir, [`termclaw-drop-${RUN}.txt`]), [`termclaw-drop-${RUN}.txt`]);
     // The Files button opens the browser in the active terminal's directory and lists the file
     await page.click(`#sidebar .proj-name:text("files-${RUN}")`);
     await page.getByRole('button', { name: 'Files', exact: true }).click();
-    await page.waitForSelector(`.file-list td:has-text("atm-drop-${RUN}.txt")`);
+    await page.waitForSelector(`.file-list td:has-text("termclaw-drop-${RUN}.txt")`);
     assert.strictEqual(await page.inputValue('.file-browser input.mono'), `${dir}/plain`);
     await shot('files-browser-wsl');
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await m.send(plain, `cd /tmp && rm -rf ${dir}`);
     await m.close(plain);
-  }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
+  }, { skip: WSL ? null : 'TERMCLAW_E2E_WSL not set' });
 
   // ---------------- Phase 7: MCP ----------------
   let client, token, roToken;
@@ -481,10 +481,10 @@ const cfgBase = () => {
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('.modal .secret');
     token = (await page.textContent('.modal .secret')).trim();
-    assert.match(token, /^atm_/);
+    assert.match(token, /^termclaw_/);
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await shot('p7-mcp');
-    roToken = (await page.evaluate(() => window.atm.call('createToken', { name: 'ro', readOnly: true }))).secret;
+    roToken = (await page.evaluate(() => window.termclaw.call('createToken', { name: 'ro', readOnly: true }))).secret;
     client = await connect(token);
   });
 
@@ -537,10 +537,10 @@ const cfgBase = () => {
       else res.end(JSON.stringify({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'k1', use: 'sig' }] }));
     });
     await new Promise((r) => idp.listen(0, '127.0.0.1', r));
-    issuer = `http://127.0.0.1:${idp.address().port}/application/o/atm/`;
+    issuer = `http://127.0.0.1:${idp.address().port}/application/o/termclaw/`;
     const jwt = (claims) => {
       const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-      const data = enc({ alg: 'RS256', kid: 'k1' }) + '.' + enc({ iss: issuer, aud: 'atm-claude', exp: Math.floor(Date.now() / 1000) + 300, ...claims });
+      const data = enc({ alg: 'RS256', kid: 'k1' }) + '.' + enc({ iss: issuer, aud: 'termclaw-claude', exp: Math.floor(Date.now() / 1000) + 300, ...claims });
       return data + '.' + crypto.sign('sha256', Buffer.from(data), privateKey).toString('base64url');
     };
     try {
@@ -549,14 +549,14 @@ const cfgBase = () => {
       await page.locator('select:has(option[value="external"])').selectOption('external');
       const fill = async (label, v) => page.locator(`.form label:has-text("${label}") input, .form label:has-text("${label}") + input`).first().fill(v);
       await fill('Issuer URL', issuer);
-      await fill('Allowed client ids', 'atm-claude');
-      await fill('Group with full access', 'atm-admins');
+      await fill('Allowed client ids', 'termclaw-claude');
+      await fill('Group with full access', 'termclaw-admins');
       await page.locator('.card:has-text("OAuth sign-in") button:has-text("Test provider")').click();
       await page.waitForSelector('text=signing key(s)');
       await page.locator('.card:has-text("OAuth sign-in") button.primary:has-text("Apply")').click();
       await waitFor(async () => (await (await fetch(`http://127.0.0.1:${MCP_PORT}/.well-known/oauth-protected-resource`)).json()).authorization_servers?.[0] === issuer, { msg: 'metadata points at the provider' });
       await shot('p7-oauth-external');
-      const admin = await connect(jwt({ sub: 'a', preferred_username: 'alice', groups: ['atm-admins'] }));
+      const admin = await connect(jwt({ sub: 'a', preferred_username: 'alice', groups: ['termclaw-admins'] }));
       assert.ok((await admin.listTools()).tools.some((t) => t.name === 'send_to_session'));
       await admin.close();
       const user = await connect(jwt({ sub: 'b', groups: [] }));
@@ -565,7 +565,7 @@ const cfgBase = () => {
       const r = await fetch(mcpUrl, { method: 'POST', headers: { authorization: 'Bearer ' + jwt({ sub: 'c', aud: 'other-app' }) }, body: '{}' });
       assert.strictEqual(r.status, 401);
     } finally {
-      await page.evaluate(() => window.atm.call('updateSettings', { mcp: { oauth: false, oauthMode: 'builtin' } }));
+      await page.evaluate(() => window.termclaw.call('updateSettings', { mcp: { oauth: false, oauthMode: 'builtin' } }));
       idp.close();
     }
   });
@@ -627,16 +627,16 @@ const cfgBase = () => {
       const free = await callTool(client, 'find_free_host', {});
       assert.strictEqual(free.name, 'devbox');
       const d = await callTool(client, 'create_directory', { host: 'devbox', path: 'neu/projekt' });
-      assert.match(d.absolute, new RegExp(`atm-e2e-${RUN}/neu/projekt$`));
+      assert.match(d.absolute, new RegExp(`termclaw-e2e-${RUN}/neu/projekt$`));
       await assert.rejects(callTool(client, 'create_directory', { host: 'devbox', path: '../x' }));
-      const cp = await callTool(client, 'create_project', { name: `mcp-proj-${RUN}`, host: 'devbox', directory: `~/atm-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp; pwd' });
+      const cp = await callTool(client, 'create_project', { name: `mcp-proj-${RUN}`, host: 'devbox', directory: `~/termclaw-e2e-${RUN}/neu/projekt`, start_command: 'echo started-by-mcp; pwd' });
       assert.strictEqual(cp.project.name, `mcp-proj-${RUN}`);
       await waitFor(async () => { const o = await callTool(client, 'read_output', { session: `mcp-proj-${RUN}/shell`, lines: 40 }); return o.output.includes('started-by-mcp') && o.output.includes('neu/projekt'); }, { msg: 'mcp project session ran start command', timeout: 25000 }).catch(async (e) => { throw e; });
     }
   });
 
   await step('P7 permissions: disabled action is refused; read-only token has no write tools', async () => {
-    await page.evaluate(() => window.atm.call('updateSettings', { mcp: { allowRunCommand: false } }));
+    await page.evaluate(() => window.termclaw.call('updateSettings', { mcp: { allowRunCommand: false } }));
     client = await connect(token);
     await assert.rejects(callTool(client, 'run_command', { session: 'lokal/dev', command: 'Hallo' }), /disabled/);
     const ro = await connect(roToken);
@@ -647,21 +647,21 @@ const cfgBase = () => {
 
   await step('P7 only shared sessions; orchestrator sessions are never targets', async () => {
     const devId = await m.find('p-local', 'dev');
-    await app.evaluate((_e, id) => globalThis.__atm.sessions.setFlags(id, { shared: false }), devId);
+    await app.evaluate((_e, id) => globalThis.__termclaw.sessions.setFlags(id, { shared: false }), devId);
     await assert.rejects(callTool(client, 'send_to_session', { session: 'lokal/dev', text: 'x' }), /not shared/);
-    await app.evaluate((_e, id) => globalThis.__atm.sessions.setFlags(id, { shared: true, orchestrator: true }), devId);
+    await app.evaluate((_e, id) => globalThis.__termclaw.sessions.setFlags(id, { shared: true, orchestrator: true }), devId);
     const list = await callTool(client, 'list_sessions');
     assert.ok(!list.some((s) => s.name === 'dev'));
-    await app.evaluate((_e, id) => globalThis.__atm.sessions.setFlags(id, { orchestrator: false }), devId);
+    await app.evaluate((_e, id) => globalThis.__termclaw.sessions.setFlags(id, { orchestrator: false }), devId);
   });
 
   await step('P7 token revoke / renew', async () => {
-    const t = await page.evaluate(() => window.atm.call('createToken', { name: 'tmp' }));
+    const t = await page.evaluate(() => window.termclaw.call('createToken', { name: 'tmp' }));
     const c = await connect(t.secret);
     await c.close();
-    await page.evaluate((id) => window.atm.call('revokeToken', id), t.id);
+    await page.evaluate((id) => window.termclaw.call('revokeToken', id), t.id);
     await assert.rejects(connect(t.secret));
-    const renewed = await page.evaluate((id) => window.atm.call('renewToken', id), t.id);
+    const renewed = await page.evaluate((id) => window.termclaw.call('renewToken', id), t.id);
     const c2 = await connect(renewed.secret);
     await c2.close();
   });
@@ -692,16 +692,16 @@ const cfgBase = () => {
   await step('P7 stdio bridge (for stdio-only MCP clients) forwards to the HTTP server', async () => {
     const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
     const c = new Client({ name: 'e2e-stdio', version: '1' });
-    await c.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(__dirname, '..', 'dist', 'atm-mcp-stdio.js'), mcpUrl], env: { ...process.env, ATM_MCP_TOKEN: token } }));
+    await c.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(__dirname, '..', 'dist', 'termclaw-mcp-stdio.js'), mcpUrl], env: { ...process.env, TERMCLAW_MCP_TOKEN: token } }));
     const list = await callTool(c, 'list_sessions');
     assert.ok(list.some((s) => s.name === 'dev'));
     await c.close();
   });
 
   await step('P7 MCP server can be switched off and on', async () => {
-    await page.evaluate(() => window.atm.call('updateSettings', { mcp: { enabled: false } }));
+    await page.evaluate(() => window.termclaw.call('updateSettings', { mcp: { enabled: false } }));
     await assert.rejects(fetch(mcpUrl, { method: 'POST' }));
-    await page.evaluate(() => window.atm.call('updateSettings', { mcp: { enabled: true } }));
+    await page.evaluate(() => window.termclaw.call('updateSettings', { mcp: { enabled: true } }));
     await waitFor(async () => (await fetch(mcpUrl, { method: 'POST' })).status === 401, { msg: 'server back' });
     client = await connect(token);
   });
@@ -738,14 +738,14 @@ const cfgBase = () => {
     assert.ok(out.messages.some((x) => x.role === 'assistant' && /PONG/i.test(x.text)), 'assistant answered PONG: ' + JSON.stringify(out.messages).slice(0, 500));
     await page.waitForSelector('.chat-log .msg.assistant');
     await shot('agent-session');
-  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+  }, { skip: OPENCODE ? null : 'TERMCLAW_E2E_OPENCODE not set' });
 
   await step('Agent session: change the model in the UI; kept after reconnect', async () => {
     await page.click('#sidebar .proj-name:text("lokal")');
     await page.click('#sidebar .sess:has-text("oc")');
     await page.click('.chat-status .model-btn');
     await page.waitForSelector('.modal input[type=radio]');
-    const before = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).modelRef, ids.agent);
+    const before = await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).modelRef, ids.agent);
     // Pick the first model that differs from the current one.
     const radios = page.locator('.modal label:has(input[type=radio])');
     const n = await radios.count();
@@ -756,15 +756,15 @@ const cfgBase = () => {
     }
     assert.ok(picked, 'another model available');
     await page.locator('.modal button.primary').click();
-    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).modelRef, ids.agent)).id === picked, { msg: 'session uses new model', timeout: 20000 });
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).modelRef, ids.agent)).id === picked, { msg: 'session uses new model', timeout: 20000 });
     await page.waitForSelector(`.chat-status .model-btn:has-text("${picked}")`);
     await shot('agent-model');
-    const saved = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').openSessions.find((s) => s.name === 'oc').model);
+    const saved = await app.evaluate(() => globalThis.__termclaw.store.getProject('p-local').openSessions.find((s) => s.name === 'oc').model);
     assert.strictEqual(saved.id, picked, 'model persisted with the session');
-    await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).reconnect(), ids.agent);
+    await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).reconnect(), ids.agent);
     await waitFor(async () => (await m.status(ids.agent)) === 'waiting', { msg: 'agent reconnected', timeout: 60000 });
-    await waitFor(async () => (await app.evaluate((_e, id) => (globalThis.__atm.sessions.get(id).modelRef || {}).id, ids.agent)) === picked, { msg: 'model kept after reconnect', timeout: 20000 });
-  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+    await waitFor(async () => (await app.evaluate((_e, id) => (globalThis.__termclaw.sessions.get(id).modelRef || {}).id, ids.agent)) === picked, { msg: 'model kept after reconnect', timeout: 20000 });
+  }, { skip: OPENCODE ? null : 'TERMCLAW_E2E_OPENCODE not set' });
 
   await step('Agent session: slash commands (autocomplete, /help, !shell, /new)', async () => {
     await page.click('#sidebar .sess:has-text("oc")');
@@ -783,23 +783,23 @@ const cfgBase = () => {
     await page.getByRole('button', { name: 'Close', exact: true }).click();
     await ta.fill(`!echo slash-shell-${RUN}`);
     await page.keyboard.press('Enter');
-    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`slash-shell-${RUN}`)), { msg: 'shell output in the conversation', timeout: 30000 });
-    const before = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).agentSessionId, ids.agent);
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`slash-shell-${RUN}`)), { msg: 'shell output in the conversation', timeout: 30000 });
+    const before = await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).agentSessionId, ids.agent);
     await ta.fill('/new');
     await page.keyboard.press('Enter');
-    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).agentSessionId, ids.agent)) !== before, { msg: 'new conversation', timeout: 20000 });
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).agentSessionId, ids.agent)) !== before, { msg: 'new conversation', timeout: 20000 });
     await page.waitForSelector('.chat-log .muted:has-text("No messages yet")');
     // Over MCP, a slash command runs too (here: shell).
     const r = await callTool(client, 'send_to_session', { session: 'lokal/oc', text: `!echo via-mcp-${RUN}` });
     assert.ok(r.ok);
-    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`via-mcp-${RUN}`)), { msg: 'shell via MCP', timeout: 30000 });
-  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+    await waitFor(async () => (await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).refresh(), ids.agent)).some((x) => x.role === 'shell' && x.text.includes(`via-mcp-${RUN}`)), { msg: 'shell via MCP', timeout: 30000 });
+  }, { skip: OPENCODE ? null : 'TERMCLAW_E2E_OPENCODE not set' });
 
   // ACP sessions run in their own project with a temporary folder, so agents never write elsewhere.
   const acpStep = async (agent, label) => {
     const work = path.join(dir, 'acp-' + agent);
     fs.mkdirSync(work, { recursive: true });
-    await app.evaluate((_e, a) => { if (!globalThis.__atm.store.getProject('p-acp')) globalThis.__atm.store.saveProject({ id: 'p-acp', name: 'acp', type: 'local', tmux: false, directory: a.work }); else globalThis.__atm.store.getProject('p-acp').directory = a.work; }, { work });
+    await app.evaluate((_e, a) => { if (!globalThis.__termclaw.store.getProject('p-acp')) globalThis.__termclaw.store.saveProject({ id: 'p-acp', name: 'acp', type: 'local', tmux: false, directory: a.work }); else globalThis.__termclaw.store.getProject('p-acp').directory = a.work; }, { work });
     await page.click('#sidebar .proj-name:text("acp")');
     await page.click('#main .main-head button:has-text("+ Agent")');
     await page.click(`.menu div:has-text("${label}")`);
@@ -808,9 +808,9 @@ const cfgBase = () => {
     await page.waitForSelector(`.chat-status:has-text("ACP")`);
     await page.fill('.chat-input textarea', 'Reply with exactly the word PONG and nothing else. Do not use tools.');
     await page.keyboard.press('Enter');
-    await waitFor(async () => /PONG/i.test(await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).lastAssistantText(), id)), { msg: `${agent} answers`, timeout: 180000 });
+    await waitFor(async () => /PONG/i.test(await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).lastAssistantText(), id)), { msg: `${agent} answers`, timeout: 180000 });
     await waitFor(async () => (await m.status(id)) === 'waiting', { msg: 'turn finished', timeout: 60000 });
-    const models = await app.evaluate((_e, id) => globalThis.__atm.sessions.get(id).listModels(), id);
+    const models = await app.evaluate((_e, id) => globalThis.__termclaw.sessions.get(id).listModels(), id);
     assert.ok(models.models.length > 0 && models.current, `${agent} reports models`);
     const ta = page.locator('.chat-input textarea');
     await ta.fill('');
@@ -825,7 +825,7 @@ const cfgBase = () => {
   await step('ACP: OpenCode via Agent Client Protocol (chat, models, commands)', async () => {
     await acpStep('opencode', 'OpenCode via ACP');
     await shot('acp-opencode');
-  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+  }, { skip: OPENCODE ? null : 'TERMCLAW_E2E_OPENCODE not set' });
 
   await step('ACP: GitHub Copilot via Agent Client Protocol (chat, models, permission request)', async () => {
     const { id, work } = await acpStep('copilot', 'GitHub Copilot via ACP');
@@ -836,61 +836,61 @@ const cfgBase = () => {
     assert.strictEqual(await m.status(id), 'waiting', 'waiting for permission');
     await page.click('.perm-box button.primary');
     await waitFor(() => fs.existsSync(path.join(work, 'acp-test.txt')), { msg: 'file written after permission', timeout: 120000 });
-  }, { skip: process.env.ATM_E2E_COPILOT === '1' ? null : 'ATM_E2E_COPILOT not set' });
+  }, { skip: process.env.TERMCLAW_E2E_COPILOT === '1' ? null : 'TERMCLAW_E2E_COPILOT not set' });
 
   await step('P8 orchestrator: start, MCP tools, conflict check, events, pause/stop, max rounds', async () => {
     const devKey = 'p-local/dev';
     const revKey = 'p-local/reviewer';
-    const o1 = await page.evaluate((w) => window.atm.call('orchSave', { name: 'O1', watched: w, maxRounds: 2, systemPrompt: 'You are a test orchestrator. Follow user instructions exactly. Use the atm MCP tools. Keep answers very short.' }), [devKey, revKey]);
-    await assert.rejects(page.evaluate((w) => window.atm.call('orchSave', { name: 'O2', watched: w }), [devKey]), /already controlled/);
-    const o2 = await page.evaluate(() => window.atm.call('orchSave', { name: 'O2', watched: [] }));
+    const o1 = await page.evaluate((w) => window.termclaw.call('orchSave', { name: 'O1', watched: w, maxRounds: 2, systemPrompt: 'You are a test orchestrator. Follow user instructions exactly. Use the termclaw MCP tools. Keep answers very short.' }), [devKey, revKey]);
+    await assert.rejects(page.evaluate((w) => window.termclaw.call('orchSave', { name: 'O2', watched: w }), [devKey]), /already controlled/);
+    const o2 = await page.evaluate(() => window.termclaw.call('orchSave', { name: 'O2', watched: [] }));
     await page.click('#sidebar button:has-text("Orchestrators")');
     await page.click('#main .main-head button:has-text("O1")');
     await page.click('button:has-text("▶ Start")');
-    await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'idle', { msg: 'orchestrator idle', timeout: 60000 });
+    await waitFor(async () => (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'idle', { msg: 'orchestrator idle', timeout: 60000 });
     // Task via UI input: orchestrator must use send_to_session + wait_until_idle + read_output.
-    await page.fill('#orch-content textarea', `Use the atm tool send_to_session to send the text "echo ORCH_${RUN}" to session "lokal/dev". Then call wait_until_idle for "lokal/dev" and read_output. Finally answer with the word DONE.`);
+    await page.fill('#orch-content textarea', `Use the termclaw tool send_to_session to send the text "echo ORCH_${RUN}" to session "lokal/dev". Then call wait_until_idle for "lokal/dev" and read_output. Finally answer with the word DONE.`);
     await page.keyboard.press('Enter');
     await waitFor(async () => (await m.output(ids.dev, 80)).includes(`ORCH_${RUN}`), { msg: 'orchestrator sent command to dev', timeout: 180000 });
     await waitFor(async () => {
-      const msgs = await page.evaluate((id) => window.atm.call('orchMessages', id), o1.id);
+      const msgs = await page.evaluate((id) => window.termclaw.call('orchMessages', id), o1.id);
       return msgs.some((x) => x.role === 'assistant' && /DONE/i.test(x.text));
     }, { msg: 'orchestrator answered', timeout: 240000 });
     await shot('p8-orchestrator');
     // Event-driven: a watched session becomes idle -> message to orchestrator.
-    await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).busy, o1.id)) === false, { msg: 'orch not busy', timeout: 120000 });
+    await waitFor(async () => (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id).busy, o1.id)) === false, { msg: 'orch not busy', timeout: 120000 });
     await m.send(ids.dev, 'echo event-trigger');
     await waitFor(async () => {
-      const msgs = await page.evaluate((id) => window.atm.call('orchMessages', id), o1.id);
-      return msgs.some((x) => x.role === 'user' && x.text.startsWith('[ATM event]') && x.text.includes('event-trigger'));
+      const msgs = await page.evaluate((id) => window.termclaw.call('orchMessages', id), o1.id);
+      return msgs.some((x) => x.role === 'user' && x.text.startsWith('[TermClaw event]') && x.text.includes('event-trigger'));
     }, { msg: 'event delivered to orchestrator', timeout: 180000 });
     // Max rounds: further events beyond maxRounds pause the orchestrator.
     for (let i = 0; i < 3; i++) {
-      await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id), o1.id)).busy === false || (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'idle between events', timeout: 120000 });
+      await waitFor(async () => (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id), o1.id)).busy === false || (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'idle between events', timeout: 120000 });
       await m.send(ids.dev, 'echo round-' + i);
       await sleep(3500);
     }
-    await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'paused by max rounds', timeout: 120000 });
+    await waitFor(async () => (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'paused', { msg: 'paused by max rounds', timeout: 120000 });
     await page.click('button:has-text("■ Stop")');
-    await waitFor(async () => (await page.evaluate((id) => window.__atm.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'stopped', { msg: 'stopped' });
-    const audit = await page.evaluate(() => window.atm.call('auditList'));
+    await waitFor(async () => (await page.evaluate((id) => window.__termclaw.S.orchestrators.find((o) => o.id === id).state, o1.id)) === 'stopped', { msg: 'stopped' });
+    const audit = await page.evaluate(() => window.termclaw.call('auditList'));
     assert.ok(audit.some((e) => e.source === 'orchestrator' && e.action === 'send_to_session'), 'orchestrator MCP calls logged');
-    await page.evaluate((id) => window.atm.call('orchRemove', id), o2.id);
-  }, { skip: OPENCODE ? null : 'ATM_E2E_OPENCODE not set' });
+    await page.evaluate((id) => window.termclaw.call('orchRemove', id), o2.id);
+  }, { skip: OPENCODE ? null : 'TERMCLAW_E2E_OPENCODE not set' });
 
   // ---------------- Coding agents: install menu, MCP library, skills, deploy ----------------
   const agentWork = path.join(dir, 'agent-proj');
   await step('Agents: MCP library keeps secrets encrypted; skills repository is scanned', async () => {
-    ids.mcpGh = await page.evaluate(() => window.atm.call('librarySave', { name: 'GitHub Tools', type: 'stdio', command: 'npx', args: ['-y', '@mcp/gh'], env: { GH_TOKEN: 'secret-123' } }));
-    ids.mcpDocs = await page.evaluate(() => window.atm.call('librarySave', { name: 'docs', type: 'http', url: 'https://docs.example/mcp', headers: { Authorization: 'Bearer hdr-456' } }));
+    ids.mcpGh = await page.evaluate(() => window.termclaw.call('librarySave', { name: 'GitHub Tools', type: 'stdio', command: 'npx', args: ['-y', '@mcp/gh'], env: { GH_TOKEN: 'secret-123' } }));
+    ids.mcpDocs = await page.evaluate(() => window.termclaw.call('librarySave', { name: 'docs', type: 'http', url: 'https://docs.example/mcp', headers: { Authorization: 'Bearer hdr-456' } }));
     await waitFor(() => { const raw = fs.readFileSync(path.join(dir, 'config.json'), 'utf8'); return raw.includes('GitHub Tools') && !raw.includes('secret-123') && !raw.includes('hdr-456'); }, { msg: 'library saved without clear-text secrets' });
-    const back = await page.evaluate((id) => window.atm.call('libraryGet', id), ids.mcpGh);
+    const back = await page.evaluate((id) => window.termclaw.call('libraryGet', id), ids.mcpGh);
     assert.strictEqual(back.env.GH_TOKEN, 'secret-123');
     const skillDir = path.join(dir, 'skills', 'e2e-skill');
     fs.mkdirSync(path.join(skillDir, 'ref'), { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: e2e-skill\ndescription: Test skill\n---\n# Test\n');
     fs.writeFileSync(path.join(skillDir, 'ref', 'notes.md'), 'notes');
-    const { skills } = await page.evaluate(() => window.atm.call('skillsList'));
+    const { skills } = await page.evaluate(() => window.termclaw.call('skillsList'));
     assert.deepStrictEqual(skills.map((s) => [s.name, s.description, s.files.length]), [['e2e-skill', 'Test skill', 2]]);
     await page.click('#sidebar button:has-text("Library")');
     await page.waitForSelector('#library-page td:has-text("e2e-skill")');
@@ -900,7 +900,7 @@ const cfgBase = () => {
   await step('Agents: detect, deploy and update on a local project (PowerShell on Windows)', async () => {
     fs.mkdirSync(agentWork, { recursive: true });
     fs.writeFileSync(path.join(agentWork, '.mcp.json'), JSON.stringify({ mcpServers: { own: { command: 'mine' } } }));
-    await app.evaluate((_e, a) => globalThis.__atm.store.saveProject({ id: 'p-agents', name: 'agents', type: 'local', tmux: false, directory: a.dir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.gh, a.docs], skills: ['e2e-skill'] } }), { dir: agentWork, gh: ids.mcpGh, docs: ids.mcpDocs });
+    await app.evaluate((_e, a) => globalThis.__termclaw.store.saveProject({ id: 'p-agents', name: 'agents', type: 'local', tmux: false, directory: a.dir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.gh, a.docs], skills: ['e2e-skill'] } }), { dir: agentWork, gh: ids.mcpGh, docs: ids.mcpDocs });
     await page.click('#sidebar .proj-name:text("agents")');
     await page.click('#main .main-head button:has-text("Agents ▾")');
     await page.click('.menu div:has-text("Detect installed agents")');
@@ -912,8 +912,8 @@ const cfgBase = () => {
     await page.waitForSelector('.modal .modal-head:text-matches("Deployed")', { timeout: 120000 });
     await shot('agents-deploy');
     await page.getByRole('button', { name: 'Close', exact: true }).click();
-    const manifest = JSON.parse(fs.readFileSync(path.join(agentWork, '.agent-terminal-manager', 'deployed.json'), 'utf8'));
-    const detected = await page.evaluate(() => window.atm.call('agentsDetect', 'p-agents'));
+    const manifest = JSON.parse(fs.readFileSync(path.join(agentWork, '.termclaw', 'deployed.json'), 'utf8'));
+    const detected = await page.evaluate(() => window.termclaw.call('agentsDetect', 'p-agents'));
     const installed = detected.filter((a) => a.installed && !a.tool).map((a) => a.id); // tools like APM have no manifest entry
     for (const id of installed) assert.ok(manifest[id], 'manifest has ' + id);
     if (installed.includes('claude')) {
@@ -926,8 +926,8 @@ const cfgBase = () => {
     if (installed.includes('codex')) assert.ok(fs.existsSync(path.join(agentWork, '.agents', 'skills', 'e2e-skill', 'SKILL.md')), 'codex skills');
     if (installed.includes('agy')) assert.ok(JSON.parse(fs.readFileSync(path.join(agentWork, '.agents', 'mcp_config.json'), 'utf8')).mcpServers.docs.serverUrl);
     // Update: deselect one server and the skill; they are removed, the user's own server stays.
-    await app.evaluate((_e, a) => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [a.docs], skills: [] }; }, { docs: ids.mcpDocs });
-    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    await app.evaluate((_e, a) => { const p = globalThis.__termclaw.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [a.docs], skills: [] }; }, { docs: ids.mcpDocs });
+    const rep = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents'));
     assert.ok(rep.ok, JSON.stringify(rep.errors));
     if (installed.includes('claude')) {
       const mcp = JSON.parse(fs.readFileSync(path.join(agentWork, '.mcp.json'), 'utf8')).mcpServers;
@@ -943,24 +943,24 @@ const cfgBase = () => {
     await page.locator('.modal input').first().fill('microsoft/apm-sample-package');
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('#library-page td.mono:has-text("microsoft/apm-sample-package")');
-    const lib = await app.evaluate(() => globalThis.__atm.store.data.apmLibrary);
+    const lib = await app.evaluate(() => globalThis.__termclaw.store.data.apmLibrary);
     const id = lib.find((e) => e.ref === 'microsoft/apm-sample-package').id;
-    await assert.rejects(page.evaluate(() => window.atm.call('apmLibrarySave', { ref: 'owner/repo; rm -rf ~' })), /Invalid package reference/);
-    await app.evaluate((_e, id) => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], skills: [], apm: [id] }; }, id);
-    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    await assert.rejects(page.evaluate(() => window.termclaw.call('apmLibrarySave', { ref: 'owner/repo; rm -rf ~' })), /Invalid package reference/);
+    await app.evaluate((_e, id) => { const p = globalThis.__termclaw.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], skills: [], apm: [id] }; }, id);
+    const rep = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents'));
     assert.ok(rep.apm && rep.apm.ok, JSON.stringify(rep.apm).slice(0, 1500));
     assert.ok(fs.existsSync(path.join(agentWork, 'apm.yml')) && fs.readFileSync(path.join(agentWork, 'apm.yml'), 'utf8').includes('microsoft/apm-sample-package'));
     assert.ok(fs.existsSync(path.join(agentWork, 'apm.lock.yaml')), 'lockfile');
     if (rep.apm.targets.includes('claude')) assert.ok(fs.existsSync(path.join(agentWork, '.claude', 'skills', 'style-checker', 'SKILL.md')), 'skill deployed for Claude');
-    const out = await page.evaluate(() => window.atm.call('apmAction', 'p-agents', 'outdated'));
+    const out = await page.evaluate(() => window.termclaw.call('apmAction', 'p-agents', 'outdated'));
     assert.ok(out.ok && /up-to-date|outdated|Package/i.test(out.output), out.output);
     // Deselect: the next deploy uninstalls the package and its files.
-    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, apm: [] }; });
-    const rep2 = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    await app.evaluate(() => { const p = globalThis.__termclaw.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, apm: [] }; });
+    const rep2 = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents'));
     assert.ok(rep2.apm.ok, JSON.stringify(rep2.apm).slice(0, 1500));
     assert.deepStrictEqual(rep2.apm.removed, ['microsoft/apm-sample-package']);
     assert.ok(!fs.existsSync(path.join(agentWork, '.claude', 'skills', 'style-checker')), 'skill removed again');
-  }, { skip: process.env.ATM_E2E_APM === '1' ? null : 'ATM_E2E_APM not set' });
+  }, { skip: process.env.TERMCLAW_E2E_APM === '1' ? null : 'TERMCLAW_E2E_APM not set' });
 
   await step('Skill sources: download skills from Git, deploy them, update from Git and deploy again', async () => {
     // A local Git repository with two skills below "skills/" and one whose name is already taken.
@@ -984,12 +984,12 @@ const cfgBase = () => {
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('#library-page td:has-text("2 skills")', { timeout: 60000 });
     await page.waitForSelector('#library-page tr:has(b:text("git-alpha")) .tag:text("team-skills")');
-    const { skills } = await page.evaluate(() => window.atm.call('skillsList'));
+    const { skills } = await page.evaluate(() => window.termclaw.call('skillsList'));
     assert.match(skills.find((s) => s.source === 'team-skills' && s.name === 'e2e-skill').error, /already used by your skills/);
     await shot('skill-sources');
 
-    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], apm: [], skills: ['git-alpha', 'git-beta'] }; });
-    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    await app.evaluate(() => { const p = globalThis.__termclaw.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, mcp: [], apm: [], skills: ['git-alpha', 'git-beta'] }; });
+    const rep = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents'));
     assert.ok(rep.ok, JSON.stringify(rep.errors));
     const claudeSkill = path.join(agentWork, '.claude', 'skills', 'git-alpha', 'SKILL.md');
     const hasClaude = rep.agents.some((a) => a.id === 'claude' && a.installed);
@@ -1000,56 +1000,56 @@ const cfgBase = () => {
     // New commit in the source; "Update skills from Git and deploy" brings it to the agents.
     fs.writeFileSync(path.join(repo, 'skills', 'git-alpha', 'SKILL.md'), '---\nname: git-alpha\ndescription: Alpha from Git\n---\nversion 2\n');
     g('commit', '-qam', 'v2');
-    const rep2 = await page.evaluate(() => window.atm.call('agentsUpdateSkillsAndDeploy', 'p-agents'));
+    const rep2 = await page.evaluate(() => window.termclaw.call('agentsUpdateSkillsAndDeploy', 'p-agents'));
     assert.ok(rep2.sources.length === 1 && rep2.sources[0].ok && / v2$/.test(rep2.sources[0].commit), JSON.stringify(rep2.sources));
     if (hasClaude) assert.match(fs.readFileSync(claudeSkill, 'utf8'), /version 2/);
-    await app.evaluate(() => { const p = globalThis.__atm.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, skills: [] }; });
-    await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents'));
+    await app.evaluate(() => { const p = globalThis.__termclaw.store.getProject('p-agents'); p.agentSetup = { ...p.agentSetup, skills: [] }; });
+    await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents'));
   });
 
   await step('Agents: install command is typed into the terminal for the right shell', async () => {
-    const r = await page.evaluate(() => window.atm.call('agentsList'));
+    const r = await page.evaluate(() => window.termclaw.call('agentsList'));
     assert.ok(r.find((a) => a.id === 'claude').install.powershell.includes('install.ps1'));
     const cmd = await app.evaluate(() => {
-      const s = globalThis.__atm.agentSetup();
-      return [s.installCommand(globalThis.__atm.store.getProject('p-agents'), 'claude'), s.installCommand({ type: 'ssh', host: 'x' }, 'claude')];
+      const s = globalThis.__termclaw.agentSetup();
+      return [s.installCommand(globalThis.__termclaw.store.getProject('p-agents'), 'claude'), s.installCommand({ type: 'ssh', host: 'x' }, 'claude')];
     });
     assert.strictEqual(cmd[0].kind, IS_WIN ? 'powershell' : 'posix');
     assert.strictEqual(cmd[1].command, 'curl -fsSL https://claude.ai/install.sh | bash');
   });
 
   await step('Agents: deploy over a POSIX shell (WSL)', async () => {
-    const wdir = `/tmp/atm-agents-${RUN}`;
-    await app.evaluate((_e, a) => globalThis.__atm.store.saveProject({ id: 'p-agents-wsl', name: 'agents-wsl', type: 'wsl', wslDistro: a.distro, tmux: false, directory: a.wdir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] } }), { distro: WSL, wdir, docs: ids.mcpDocs });
+    const wdir = `/tmp/termclaw-agents-${RUN}`;
+    await app.evaluate((_e, a) => globalThis.__termclaw.store.saveProject({ id: 'p-agents-wsl', name: 'agents-wsl', type: 'wsl', wslDistro: a.distro, tmux: false, directory: a.wdir, agentSetup: { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] } }), { distro: WSL, wdir, docs: ids.mcpDocs });
     spawnSync('wsl.exe', ['-d', WSL, '--', 'mkdir', '-p', wdir]);
-    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-agents-wsl'));
+    const rep = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-agents-wsl'));
     assert.ok(rep.ok, JSON.stringify(rep.errors));
     assert.strictEqual(rep.target, 'posix');
-    const m = spawnSync('wsl.exe', ['-d', WSL, '--', 'cat', `${wdir}/.agent-terminal-manager/deployed.json`], { encoding: 'utf8' }).stdout;
+    const m = spawnSync('wsl.exe', ['-d', WSL, '--', 'cat', `${wdir}/.termclaw/deployed.json`], { encoding: 'utf8' }).stdout;
     assert.ok(JSON.parse(m)._updated, 'manifest written via POSIX shell');
     spawnSync('wsl.exe', ['-d', WSL, '--', 'rm', '-rf', wdir]);
-  }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
+  }, { skip: WSL ? null : 'TERMCLAW_E2E_WSL not set' });
 
   await step('Agents: deploy over SSH (detect, write skills and manifest, update removes them)', async () => {
-    await app.evaluate((_e, a) => { const p = globalThis.__atm.store.getProject('p-ssh'); p.agentSetup = { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] }; globalThis.__atm.store.save(); }, { docs: ids.mcpDocs });
-    const rep = await page.evaluate(() => window.atm.call('agentsDeploy', 'p-ssh'));
+    await app.evaluate((_e, a) => { const p = globalThis.__termclaw.store.getProject('p-ssh'); p.agentSetup = { scope: 'project', agents: 'auto', mcp: [a.docs], skills: ['e2e-skill'] }; globalThis.__termclaw.store.save(); }, { docs: ids.mcpDocs });
+    const rep = await page.evaluate(() => window.termclaw.call('agentsDeploy', 'p-ssh'));
     assert.ok(rep.ok, JSON.stringify(rep.errors));
     assert.strictEqual(rep.target, 'posix');
-    const pdir = `~/atm-e2e-${RUN}/proj1`;
-    const m = JSON.parse(sshRun(`cat ${pdir}/.agent-terminal-manager/deployed.json`));
+    const pdir = `~/termclaw-e2e-${RUN}/proj1`;
+    const m = JSON.parse(sshRun(`cat ${pdir}/.termclaw/deployed.json`));
     assert.ok(m._updated, 'manifest written over SSH');
     // Write path check independent of installed agents: deploy to a fake agent dir via the target directly.
     const probe = await app.evaluate(async () => {
-      const { Target } = globalThis.__atm.targetClass();
-      const p = globalThis.__atm.store.getProject('p-ssh');
-      const t = new Target(p, globalThis.__atm.store.getHost(p.hostId));
+      const { Target } = globalThis.__termclaw.targetClass();
+      const p = globalThis.__termclaw.store.getProject('p-ssh');
+      const t = new Target(p, globalThis.__termclaw.store.getHost(p.hostId));
       const loc = { base: 'project', rel: '.probe/skills/x/SKILL.md' };
       const r = await t.run([t.preamble(), t.writeSnippet(loc, 'hello über ssh'), t.readSnippet('k', loc), t.removeDirSnippet({ base: 'project', rel: '.probe' })].join('\n'));
       return r.out;
     });
     assert.ok(probe.includes('@@B ' + Buffer.from('hello über ssh').toString('base64')), 'write/read round trip over SSH: ' + probe.slice(0, 200));
     assert.match(sshRun(`ls -a ${pdir}`), /^(?![\s\S]*\.probe)/, 'probe dir removed');
-  }, { skip: SSH ? null : 'ATM_E2E_SSH not set' });
+  }, { skip: SSH ? null : 'TERMCLAW_E2E_SSH not set' });
 
   // ---------------- Phase 2/6: persistence after restart ----------------
   await step('P2/P6 configuration and open sessions/layout survive restart (tmux re-attach)', async () => {
@@ -1063,7 +1063,7 @@ const cfgBase = () => {
     await page.waitForSelector('#sidebar .proj-name:text("lokal")');
     const after = await waitFor(async () => { const l = (await m.sessions()).map((s) => `${s.projectId}/${s.name}`).sort(); return l.length >= before.length ? l : null; }, { msg: 'sessions restored', timeout: 20000 });
     assert.deepStrictEqual(after, before);
-    const layout = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').layout.mode);
+    const layout = await app.evaluate(() => globalThis.__termclaw.store.getProject('p-local').layout.mode);
     assert.strictEqual(layout, 'tiles');
     if (SSH) {
       const sid = await m.find('p-ssh', 'shell');
@@ -1081,13 +1081,13 @@ const cfgBase = () => {
     await page.waitForSelector('.ov-group');
     await page.keyboard.press('ControlOrMeta+Digit1');
     await page.waitForSelector('#main .main-head .title:text("lokal")');
-    const before = await app.evaluate(() => globalThis.__atm.store.getProject('p-local').layout.mode);
+    const before = await app.evaluate(() => globalThis.__termclaw.store.getProject('p-local').layout.mode);
     await page.keyboard.press('ControlOrMeta+Shift+KeyG');
-    await waitFor(async () => (await app.evaluate(() => globalThis.__atm.store.getProject('p-local').layout.mode)) !== before, { msg: 'Ctrl+Shift+G toggled tiles' });
+    await waitFor(async () => (await app.evaluate(() => globalThis.__termclaw.store.getProject('p-local').layout.mode)) !== before, { msg: 'Ctrl+Shift+G toggled tiles' });
   });
 
   await step('General: stable with 5 projects and 15 concurrent sessions', async () => {
-    for (let i = 1; i <= 4; i++) await app.evaluate((_e, i) => globalThis.__atm.store.saveProject({ id: 'p-load' + i, name: 'last' + i, type: 'local', tmux: false, thresholdSec: 2 }), i);
+    for (let i = 1; i <= 4; i++) await app.evaluate((_e, i) => globalThis.__termclaw.store.saveProject({ id: 'p-load' + i, name: 'last' + i, type: 'local', tmux: false, thresholdSec: 2 }), i);
     const target = 15;
     const pids = ['p-local', 'p-load1', 'p-load2', 'p-load3', 'p-load4'];
     const count = async () => (await m.sessions()).filter((s) => s.kind === 'terminal' && pids.includes(s.projectId)).length;
@@ -1116,12 +1116,12 @@ const cfgBase = () => {
 
   // cleanup
   try {
-    await app.evaluate(() => { for (const s of globalThis.__atm.sessions.list()) globalThis.__atm.sessions.close(s.id, { killTmux: true }); });
+    await app.evaluate(() => { for (const s of globalThis.__termclaw.sessions.list()) globalThis.__termclaw.sessions.close(s.id, { killTmux: true }); });
     await sleep(1500);
     await app.close();
   } catch {}
   // Only remove what this run created: tmux sessions carry the run id in their name.
-  if (SSH) sshRun(`tmux ls -F '#S' 2>/dev/null | grep -- '-${RUN}-' | xargs -r -n1 tmux kill-session -t; rm -rf ~/atm-e2e-${RUN}`);
+  if (SSH) sshRun(`tmux ls -F '#S' 2>/dev/null | grep -- '-${RUN}-' | xargs -r -n1 tmux kill-session -t; rm -rf ~/termclaw-e2e-${RUN}`);
 
   const failed = results.filter((r) => r.status === 'fail');
   const passed = results.filter((r) => r.status === 'pass');

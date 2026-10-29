@@ -6,7 +6,7 @@ import * as pages from './pages.js';
 import * as agents from './agents.js';
 import * as files from './files.js';
 
-const call = (m, ...a) => window.atm.call(m, ...a);
+const call = (m, ...a) => window.termclaw.call(m, ...a);
 
 export const S = {
   config: { projects: [], hosts: [], settings: {}, orchestrators: [] },
@@ -329,7 +329,7 @@ function renderProject(main) {
   if (!p && S.config.projects.length) { p = S.config.projects[0]; S.projectId = p.id; }
   if (!p) {
     main.appendChild(h('div', { class: 'content' }, h('div', { class: 'empty' },
-      h('div', { style: { fontSize: '18px', color: 'var(--fg2)' } }, 'Agent Terminal Manager'),
+      h('div', { style: { fontSize: '18px', color: 'var(--fg2)' } }, 'TermClaw'),
       h('div', null, 'Create a project to open terminals.'),
       h('button', { class: 'primary', onclick: () => pages.editProject(ctx, null) }, '+ Create project'))));
     return;
@@ -575,7 +575,7 @@ document.addEventListener('keydown', (e) => {
 })();
 
 // ---------- events from main ----------
-const on = window.atm.on;
+const on = window.termclaw.on;
 on('session:data', ({ id, data }) => { termFor(id).write(data); });
 on('session:opened', (info) => { S.sessions.set(info.id, info); renderSoon(); });
 on('sessions:reordered', ({ projectId, ids }) => {
@@ -669,5 +669,5 @@ export const ctx = { S, call, render, renderSoon, showView, openSession, selectS
   }
   S.projectId = (S.config.projects[0] || {}).id || null;
   render();
-  window.__atm = { S, ctx, terms }; // for tests and debugging
+  window.__termclaw = { S, ctx, terms }; // for tests and debugging
 })();
