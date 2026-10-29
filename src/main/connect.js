@@ -36,9 +36,10 @@ function tmuxScript(name, dir, command) {
     `else echo '[atm] tmux not found, starting plain shell'; ${command ? command + '; ' : ''}exec "\${SHELL:-/bin/sh}" -l; fi`;
 }
 
-function plainScript(dir) {
+// sid: marker in the shell's environment, so file transfers can find its current directory.
+function plainScript(dir, sid) {
   const d = posixDir(dir);
-  return `${d ? `cd ${d} && ` : ''}exec "\${SHELL:-/bin/sh}" -l`;
+  return `${sid ? `export ATM_SID=${shq(sid)}; ` : ''}${d ? `cd ${d} && ` : ''}exec "\${SHELL:-/bin/sh}" -l`;
 }
 
 // Resolve connection data: a project either references a dev host or has inline host/user/port.
@@ -82,7 +83,7 @@ function buildSpawn(project, host, session) {
 
   if (project.type === 'ssh') {
     const target = resolveTarget(project, host);
-    const script = useTmux ? tmuxScript(name, dir, command) : plainScript(dir);
+    const script = useTmux ? tmuxScript(name, dir, command) : plainScript(dir, session.id);
     return {
       file: SSH_BIN,
       args: ['-t', ...sshBaseArgs(project, target), sshDest(target), script],
@@ -121,7 +122,7 @@ function buildTmuxKill(project, host, name) {
   }
   if (project.type === 'wsl') {
     const args = project.wslDistro ? ['-d', project.wslDistro] : [];
-    return { file: 'wsl.exe', args: [...args, '--', 'bash', '-lc', script] };
+    return { file: 'wsl.exe', args: [...args, '--exec', 'bash', '-lc', script] };
   }
   if (!IS_WIN) return { file: process.env.SHELL || '/bin/sh', args: ['-lc', script] };
   return null;
@@ -147,7 +148,7 @@ function buildRemoteExec(project, host, script) {
   }
   if (project.type === 'wsl') {
     const args = project.wslDistro ? ['-d', project.wslDistro] : [];
-    return { file: 'wsl.exe', args: [...args, '--', 'bash', '-lc', script] };
+    return { file: 'wsl.exe', args: [...args, '--exec', 'bash', '-lc', script] };
   }
   if (IS_WIN) return { file: 'powershell.exe', args: ['-NoProfile', '-Command', script] };
   return { file: process.env.SHELL || '/bin/sh', args: ['-lc', script] };

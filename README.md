@@ -71,6 +71,13 @@ Authentication uses SSH keys, ssh-agent and your own `~/.ssh/config` only (host 
 
 Port forwarding per SSH project (local port → remote port) runs as a separate `ssh -N -L …` process while at least one session of the project is running.
 
+## Files
+
+- **Drop files onto a terminal** (from the Explorer / Finder) to copy them to the project machine, into the directory the shell is in right now. Folders work too. If a name already exists you are asked before it is replaced. On a local terminal the file paths are typed in instead.
+- **Files** in the project header (or *Browse files…* in the session / project context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder (default: Downloads). **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
+
+SSH and WSL transfers run over `ssh` / `wsl.exe` with the same connection settings as the terminal (key authentication, `~/.ssh/config`): files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself if it reports it (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `ATM_SID` (sessions opened with this version); otherwise the project folder is used.
+
 ## Developer hosts
 
 Under **Hosts** you register your Linux development machines once (name, hostname/IP, port, user, workspace folder, tags). Projects reference a host. The app checks reachability (TCP) every 30 s and counts sessions per host; “Check SSH” additionally counts the tmux sessions on the host.

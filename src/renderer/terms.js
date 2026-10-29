@@ -15,11 +15,22 @@ const THEME = {
 };
 
 export class TermView {
-  constructor(id, { fontSize = 13, onKey, isMac }) {
+  constructor(id, { fontSize = 13, onKey, onDropFiles, isMac }) {
     this.id = id;
     this.baseFontSize = fontSize;
     this.el = document.createElement('div');
     this.el.className = 'termwrap';
+    // Files dropped from the Explorer / Finder: handed over as local paths.
+    const isFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+    this.el.addEventListener('dragover', (e) => { if (!isFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; this.el.classList.add('drop-files'); });
+    this.el.addEventListener('dragleave', (e) => { if (!this.el.contains(e.relatedTarget)) this.el.classList.remove('drop-files'); });
+    this.el.addEventListener('drop', (e) => {
+      this.el.classList.remove('drop-files');
+      if (!isFiles(e)) return;
+      e.preventDefault();
+      const paths = [...e.dataTransfer.files].map((f) => window.atm.pathForFile(f)).filter(Boolean);
+      if (paths.length && onDropFiles) onDropFiles(id, paths);
+    });
     this.term = new Terminal({
       fontSize,
       fontFamily: '"Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',

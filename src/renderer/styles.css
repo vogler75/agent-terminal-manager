@@ -68,6 +68,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .sb-bottom { border-top: 1px solid var(--border); padding: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .sb-bottom button { font-size: 12px; text-align: left; }
 .sb-bottom button .count { float: right; color: var(--fg3); }
+.sb-bottom button .count.running { color: var(--green); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg3); flex: none; display: inline-block; }
 .dot.working { background: var(--amber); animation: pulse 1.2s infinite; }
@@ -238,3 +239,12 @@ table.list tr:hover td { background: var(--bg2); }
 .ref-example:hover { background: var(--bg3); }
 .ref-example code { font-family: var(--mono); font-size: 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-form > label { align-self: start; padding-top: 9px; }
+
+/* files: drop onto a terminal or the file browser */
+.termwrap.drop-files, .file-list.drop-files { outline: 2px dashed var(--accent, #4a9eff); outline-offset: -4px; }
+.file-browser { display: flex; flex-direction: column; gap: 8px; }
+.file-list { height: 420px; overflow: auto; border: 1px solid var(--border, #333); border-radius: 4px; }
+.file-list table.files { width: 100%; }
+.file-list table.files tr { cursor: default; user-select: none; }
+.file-list table.files tr.sel td { background: var(--sel, rgba(74, 158, 255, 0.25)); }
+.file-list .ficon { display: inline-block; width: 22px; }

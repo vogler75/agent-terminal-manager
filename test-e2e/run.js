@@ -78,6 +78,7 @@ const cfgBase = () => {
     projects.push({ id: 'p-ssh', name: `remote-${RUN}`, type: 'ssh', hostId: 'h1', directory: `~/atm-e2e-${RUN}/proj1`, tmux: true, keepAlive: true, thresholdSec: 2, forwards: [{ local: MCP_PORT + 900, remote: MCP_PORT + 901 }] });
   }
   if (WSL) projects.push({ id: 'p-wsl', name: `wsl-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: true, thresholdSec: 2 });
+  if (WSL) projects.push({ id: 'p-files', name: `files-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: false, thresholdSec: 2 });
   return { settings: { mcp: { enabled: true, port: MCP_PORT, bind: '127.0.0.1', allowCreateProject: true, allowCreateDirectory: true, allowRunCommand: true }, notifications: true }, hosts, projects };
 };
 
@@ -116,6 +117,24 @@ const cfgBase = () => {
     await page.keyboard.type("-end'");
     await page.keyboard.press('Enter');
     await waitFor(async () => ((await m.output(ids.local)) || '').split('\n').some((l) => l.trim() === `pst-${RUN}-end`), { msg: 'single paste output' });
+  });
+
+  await step('Files: file browser on a local project — navigate, new folder, folders listed first', async () => {
+    const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'atm-browse-'));
+    fs.writeFileSync(path.join(dir, 'readme.txt'), 'hi');
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.waitForSelector('.file-browser');
+    await page.fill('.file-browser input.mono', dir);
+    await page.press('.file-browser input.mono', 'Enter');
+    await page.waitForSelector('.file-list td:has-text("readme.txt")');
+    await page.click('.file-browser button:has-text("New folder")');
+    await page.locator('.modal').last().locator('input').fill('made-by-e2e');
+    await page.locator('.modal').last().locator('button.primary').click();
+    await page.waitForSelector('.file-list td:has-text("made-by-e2e")');
+    assert.ok(fs.statSync(path.join(dir, 'made-by-e2e')).isDirectory());
+    const names = await page.locator('.file-list tr td:first-child').allTextContents();
+    assert.deepStrictEqual(names.map((n) => n.replace(/^(📁|📄)/u, '').trim()), ['..', 'made-by-e2e', 'readme.txt']);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
   });
 
   await step('P1 terminal resize is passed to the shell', async () => {
@@ -308,7 +327,8 @@ const cfgBase = () => {
   });
 
   await step('P3 rename and close sessions in the tree', async () => {
-    await page.dblclick(`#sidebar .sess:has-text("rev")`);
+    // The sidebar re-renders on status changes; a re-render between the two clicks loses the double-click.
+    await waitFor(async () => { await page.dblclick(`#sidebar .sess:has-text("rev")`); return page.locator('.modal input').isVisible({ timeout: 1000 }); }, { msg: 'rename dialog' });
     await page.locator('.modal input').fill('reviewer');
     await page.locator('.modal button.primary').click();
     await page.waitForSelector('#sidebar .sess:has-text("reviewer")');
@@ -400,6 +420,36 @@ const cfgBase = () => {
     await waitFor(async () => /\$ *$/m.test((await m.output(ids.wsl)) || ''), { msg: 'wsl prompt', timeout: 25000 });
     await m.send(ids.wsl, 'pwd; tmux display -p "tmux:#S"');
     await waitFor(async () => { const o = await m.output(ids.wsl); return /^\/tmp$/m.test(o) && o.includes(`tmux:atm-wsl-${RUN}-shell`); }, { msg: 'pwd /tmp in tmux' });
+  }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
+
+  await step('Files: a file dropped onto a WSL terminal goes to the shell’s current directory (tmux and plain shell)', async () => {
+    const dir = `/tmp/atm-e2e-files-${RUN}`;
+    const api = (name, ...a) => page.evaluate(([n, args]) => window.atm.call(n, ...args), [name, a]);
+    // tmux: directory from the pane
+    await m.send(ids.wsl, `mkdir -p ${dir}/tm && cd ${dir}/tm`);
+    await waitFor(async () => (await api('filesDropTarget', ids.wsl)).dir === `${dir}/tm`, { msg: 'tmux pane directory' });
+    // plain shell: directory found by the session marker
+    const plain = (await m.open('p-files')).id;
+    await waitFor(async () => /\$ *$/m.test((await m.output(plain)) || ''), { msg: 'plain wsl prompt', timeout: 25000 });
+    await m.send(plain, `mkdir -p ${dir}/plain && cd ${dir}/plain`);
+    let target;
+    await waitFor(async () => (target = await api('filesDropTarget', plain)).dir === `${dir}/plain`, { msg: 'plain shell directory' });
+    assert.strictEqual(target.remote, true);
+    const local = path.join(require('os').tmpdir(), `atm-drop-${RUN}.txt`);
+    fs.writeFileSync(local, 'dropped ✓');
+    await api('filesUpload', 'p-files', [local], target.dir, 'e2e');
+    await m.send(plain, `cat atm-drop-${RUN}.txt; echo`);
+    await waitFor(async () => (await m.output(plain)).includes('dropped ✓'), { msg: 'uploaded file content' });
+    assert.deepStrictEqual(await api('filesExists', 'p-files', target.dir, [`atm-drop-${RUN}.txt`]), [`atm-drop-${RUN}.txt`]);
+    // The Files button opens the browser in the active terminal's directory and lists the file
+    await page.click(`#sidebar .proj-name:text("files-${RUN}")`);
+    await page.getByRole('button', { name: 'Files', exact: true }).click();
+    await page.waitForSelector(`.file-list td:has-text("atm-drop-${RUN}.txt")`);
+    assert.strictEqual(await page.inputValue('.file-browser input.mono'), `${dir}/plain`);
+    await shot('files-browser-wsl');
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await m.send(plain, `cd /tmp && rm -rf ${dir}`);
+    await m.close(plain);
   }, { skip: WSL ? null : 'ATM_E2E_WSL not set' });
 
   // ---------------- Phase 7: MCP ----------------

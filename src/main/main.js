@@ -11,6 +11,7 @@ const { ForwardManager } = require('./forwards');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
+const { filesFor, LocalFiles } = require('./files');
 const { findOpencode } = require('./opencode');
 const { AgentSetup } = require('./coding-agents/deploy');
 const { SkillsRepo } = require('./coding-agents/skills');
@@ -119,6 +120,22 @@ function publicConfig() {
 function secretKeys(blob) {
   const s = secrets.decrypt(blob);
   return { envKeys: Object.keys(s.env || {}), headerKeys: Object.keys(s.headers || {}) };
+}
+
+function projectFiles(projectId) {
+  const p = store.getProject(projectId);
+  if (!p) throw new Error('unknown project');
+  return filesFor(p, p.hostId ? store.getHost(p.hostId) : null);
+}
+
+// Progress of a file transfer, at most every 200 ms.
+function progress(jobId) {
+  let last = 0;
+  return (done, total) => {
+    if (!jobId || (Date.now() - last < 200 && done < total)) return;
+    last = Date.now();
+    send('files:progress', { jobId, done, total });
+  };
 }
 
 function agentSetup() {
@@ -250,6 +267,38 @@ const api = {
   detectOpencode: () => findOpencode(store.settings.opencodePath),
   copy: (text) => clipboard.writeText(String(text)),
   openExternal: (url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); },
+  showInFolder: (p) => shell.showItemInFolder(String(p)),
+
+  // files on the project's machine (file browser, drag & drop onto a terminal)
+  filesList: (projectId, dir) => projectFiles(projectId).list(dir),
+  // Where a file dropped onto this terminal goes: the shell's current directory.
+  filesDropTarget: async (sessionId) => {
+    const s = sessions.get(sessionId);
+    if (!s || s.kind !== 'terminal') throw new Error('not a terminal session');
+    const f = projectFiles(s.projectId);
+    return { projectId: s.projectId, dir: await f.sessionCwd(s), label: f.label, remote: !(f instanceof LocalFiles) };
+  },
+  filesExists: (projectId, dir, names) => projectFiles(projectId).exists(dir, names),
+  filesMkdir: (projectId, dir, name) => projectFiles(projectId).mkdir(dir, name),
+  filesUpload: async (projectId, localPaths, dir, jobId) => {
+    const p = store.getProject(projectId);
+    const r = await projectFiles(projectId).upload(localPaths, dir, { onProgress: progress(jobId) });
+    audit.add({ source: 'app', action: 'files.upload', detail: `${p.name}: ${localPaths.map((x) => path.basename(x)).join(', ')} → ${dir}` });
+    return r;
+  },
+  filesPickUpload: async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] });
+    return r.canceled ? [] : r.filePaths;
+  },
+  // items: [{path, type, size}]; asks for the local folder (default: Downloads).
+  filesDownload: async (projectId, items, jobId) => {
+    const r = await dialog.showOpenDialog(win, { title: 'Download to folder', defaultPath: app.getPath('downloads'), properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const p = store.getProject(projectId);
+    const out = await projectFiles(projectId).download(items, r.filePaths[0], { onProgress: progress(jobId) });
+    audit.add({ source: 'app', action: 'files.download', detail: `${p.name}: ${items.map((i) => i.path).join(', ')} → ${r.filePaths[0]}` });
+    return out;
+  },
 
   // mcp
   mcpStatus: () => mcp.status,

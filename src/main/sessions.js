@@ -121,6 +121,12 @@ class TerminalSession extends BaseSession {
     this.headless = new Terminal({ cols: this.cols, rows: this.rows, scrollback: 5000, allowProposedApi: true });
     this.serializer = new SerializeAddon();
     this.headless.loadAddon(this.serializer);
+    // Shells that report their directory (OSC 7, file://host/path) tell file transfers where they are.
+    this.headless.parser.registerOscHandler(7, (data) => {
+      const m = /^file:\/\/[^/]*(\/.*)$/.exec(data);
+      if (m) { try { this.cwd = decodeURIComponent(m[1]); } catch {} }
+      return true;
+    });
     this.raw = '';
     this.rawOffset = 0; // total characters ever received; raw holds the tail
     this.userClosed = false;
@@ -133,7 +139,7 @@ class TerminalSession extends BaseSession {
     const host = project.hostId ? this.mgr.store.getHost(project.hostId) : null;
     let spec;
     try {
-      spec = buildSpawn(project, host, { name: this.name, command: this.command });
+      spec = buildSpawn(project, host, { id: this.id, name: this.name, command: this.command });
     } catch (e) {
       this._fail(e.message);
       return;
@@ -151,7 +157,8 @@ class TerminalSession extends BaseSession {
         cols: this.cols,
         rows: this.rows,
         cwd: spec.cwd,
-        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ATM_SESSION: this.name },
+        // ATM_SID marks the shell (WSLENV passes it into WSL) so file transfers can find its directory.
+        env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ATM_SESSION: this.name, ATM_SID: this.id, WSLENV: [process.env.WSLENV, 'ATM_SID/u'].filter(Boolean).join(':') },
         useConpty: true,
       });
     } catch (e) {

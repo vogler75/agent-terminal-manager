@@ -1,5 +1,5 @@
 'use strict';
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const listeners = new Map();
 ipcRenderer.on('event', (_e, { channel, payload }) => {
@@ -10,6 +10,8 @@ ipcRenderer.on('event', (_e, { channel, payload }) => {
 
 contextBridge.exposeInMainWorld('atm', {
   call: (method, ...args) => ipcRenderer.invoke('api', method, ...args),
+  // Local path of a file dropped from the Explorer / Finder.
+  pathForFile: (file) => webUtils.getPathForFile(file),
   on: (channel, cb) => {
     if (!listeners.has(channel)) listeners.set(channel, new Set());
     listeners.get(channel).add(cb);

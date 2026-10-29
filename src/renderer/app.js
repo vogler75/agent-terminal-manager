@@ -4,6 +4,7 @@ import { TermView } from './terms.js';
 import { renderChat, renderChatLog, renderPermission } from './chat.js';
 import * as pages from './pages.js';
 import * as agents from './agents.js';
+import * as files from './files.js';
 
 const call = (m, ...a) => window.atm.call(m, ...a);
 
@@ -52,7 +53,7 @@ const dot = (status, attrs = {}) => h('span', { class: 'dot ' + status, title: S
 function termFor(id) {
   let t = terms.get(id);
   if (!t) {
-    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, onKey: handleShortcut, isMac: isMac() });
+    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, onKey: handleShortcut, onDropFiles: (sid, paths) => files.dropOnTerminal(ctx, sid, paths), isMac: isMac() });
     terms.set(id, t);
   }
   return t;
@@ -180,11 +181,11 @@ function renderSidebar() {
   sb.appendChild(tree);
 
   const orchRunning = S.orchestrators.filter((o) => o.state !== 'stopped').length;
-  const navBtn = (view, label, count) => h('button', { class: S.view === view ? 'active' : '', onclick: () => showView(view) }, label, count !== undefined ? h('span', { class: 'count' }, count) : null);
+  const navBtn = (view, label, count, countClass) => h('button', { class: S.view === view ? 'active' : '', onclick: () => showView(view) }, label, count !== undefined ? h('span', { class: 'count' + (countClass ? ' ' + countClass : '') }, count) : null);
   sb.appendChild(h('div', { class: 'sb-bottom' },
     navBtn('hosts', 'Hosts', S.config.hosts.length),
     navBtn('orch', 'Orchestrators', orchRunning || undefined),
-    navBtn('mcp', 'MCP', S.mcp.running ? '●' : '○'),
+    navBtn('mcp', 'MCP', S.mcp.running ? '●' : '○', S.mcp.running ? 'running' : ''),
     navBtn('audit', 'Audit log'),
     navBtn('library', 'Library', (S.config.mcpLibrary || []).length || undefined),
     navBtn('settings', 'Settings')));
@@ -238,6 +239,7 @@ function projectMenu(e, p) {
     { label: 'New ACP agent: OpenCode', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'opencode', name: 'opencode', command: '' }) },
     { label: 'New ACP agent: GitHub Copilot', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'copilot', name: 'copilot', command: '' }) },
     { label: 'Start all terminals', action: () => startAll(p.id) },
+    { label: 'Browse files…', action: () => files.openBrowser(ctx, p.id) },
     '-',
     { label: 'Tile view', action: () => { S.projectId = p.id; S.view = 'project'; setMode(p, 'tiles'); } },
     { label: 'Edit…', action: () => pages.editProject(ctx, p) },
@@ -258,10 +260,18 @@ function sessionMenu(e, s) {
     { label: s.shared ? '✓ Shared with MCP' : 'Share with MCP', action: () => call('setSessionFlags', s.id, { shared: !s.shared }) },
     { label: s.orchestrator ? '✓ Orchestrator session' : 'Mark as orchestrator', action: () => call('setSessionFlags', s.id, { orchestrator: !s.orchestrator }) },
     { label: 'Reconnect', action: () => call('reconnect', s.id) },
+    { label: 'Browse files…', action: () => browseFrom(s) },
     '-',
     { label: 'Close (tmux keeps running)', action: () => closeSession(s.id, false) },
     { label: 'Close and kill tmux session', action: () => closeSession(s.id, true) },
   ]);
+}
+
+// File browser in the shell's current directory (terminals) or the project folder.
+async function browseFrom(s) {
+  let dir = '';
+  if (s.kind === 'terminal') dir = await call('filesDropTarget', s.id).then((t) => t.dir).catch(() => '');
+  files.openBrowser(ctx, s.projectId, dir);
 }
 
 // Structured agent sessions: OpenCode server API or any agent via ACP.
@@ -338,6 +348,7 @@ function renderProject(main) {
     (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Start all configured terminals' }, '▶ All') : null,
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
     h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Tile view (Ctrl+Shift+G)' }, 'Tiles'),
+    h('button', { title: 'Browse files on the project machine, upload and download (or drop files onto a terminal)', onclick: () => { const sid = activeSessionId(p.id); const s = sid && S.sessions.get(sid); s ? browseFrom(s) : files.openBrowser(ctx, p.id); } }, 'Files'),
     h('button', { title: 'Install coding agents, deploy MCP servers and skills', onclick: (e) => agents.agentsMenu(ctx, e, p, activeSessionId(p.id)) }, 'Agents ▾'),
     h('button', { class: 'icon', title: 'Edit project', onclick: () => pages.editProject(ctx, p) }, '⚙')));
 
@@ -618,6 +629,9 @@ on('orch:list', (list) => { S.orchestrators = list; pages.onOrchestratorsChanged
 on('orch:messages', ({ id, messages }) => { S.orchMessages.set(id, messages); S.orchLive.delete(id); pages.onOrchMessages(ctx, id); });
 on('orch:live', ({ id, text }) => { S.orchLive.set(id, text); pages.onOrchMessages(ctx, id); });
 on('focus-session', ({ id }) => selectSession(id));
+
+// A file dropped anywhere else must not make the window navigate to it.
+for (const ev of ['dragover', 'drop']) document.addEventListener(ev, (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); });
 
 export const ctx = { S, call, render, renderSoon, showView, openSession, selectSession, project, projectSessions, terms, dot, STATUS_LABEL, closeSession, editProject: (p) => pages.editProject(ctx, p) };
 
