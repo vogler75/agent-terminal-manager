@@ -20,7 +20,7 @@ if /i "%~1"=="test" (
   call npm test || exit /b 1
 )
 
-rem Version from the VERSION file into package.json (app, exe file version, artifact names)
+rem Version from version.txt into package.json (app, exe file version, artifact names)
 call node scripts\version.js || exit /b 1
 
 echo Building renderer and MCP bridge...

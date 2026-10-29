@@ -1,20 +1,20 @@
 'use strict';
-// The release number lives in VERSION. This script copies it into package.json / package-lock.json,
+// The release number lives in version.txt. This script copies it into package.json / package-lock.json,
 // which electron-builder uses for the app version, the exe file version and the artifact names.
 //
-//   node scripts/version.js           sync package.json from VERSION (runs before every build)
-//   node scripts/version.js 0.2.0     set a new version (VERSION + package.json + package-lock.json)
-//   node scripts/version.js --check v0.2.0   exit 1 unless the tag matches VERSION (release workflow)
+//   node scripts/version.js           sync package.json from version.txt (runs before every build)
+//   node scripts/version.js 0.2.0     set a new version (version.txt + package.json + package-lock.json)
+//   node scripts/version.js --check v0.2.0   exit 1 unless the tag matches version.txt (release workflow)
 const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const versionFile = path.join(root, 'VERSION');
+const versionFile = path.join(root, 'version.txt');
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function read() {
   const v = fs.readFileSync(versionFile, 'utf8').trim();
-  if (!SEMVER.test(v)) throw new Error(`VERSION must look like 1.2.3 (found "${v}")`);
+  if (!SEMVER.test(v)) throw new Error(`version.txt must look like 1.2.3 (found "${v}")`);
   return v;
 }
 
@@ -40,13 +40,13 @@ try {
   if (arg === '--check') {
     const v = read();
     const t = String(tag || '').replace(/^refs\/tags\//, '').replace(/^v/, '');
-    if (t !== v) { console.error(`Tag ${tag} does not match VERSION ${v}. Set the version with "node scripts/version.js ${t}", commit, then tag.`); process.exit(1); }
-    console.log(`tag matches VERSION ${v}`);
+    if (t !== v) { console.error(`Tag ${tag} does not match version.txt (${v}). Set the version with "node scripts/version.js ${t}", commit, then tag.`); process.exit(1); }
+    console.log(`tag matches version.txt (${v})`);
   } else if (arg) {
     if (!SEMVER.test(arg)) throw new Error(`Not a version: ${arg} (use 1.2.3)`);
     fs.writeFileSync(versionFile, arg + '\n');
     sync(arg);
-    console.log(`VERSION = ${arg}. Commit, then: git tag v${arg} && git push origin v${arg}`);
+    console.log(`version.txt = ${arg}`);
   } else {
     sync(read());
   }

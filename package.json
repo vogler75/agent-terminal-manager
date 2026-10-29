@@ -1,7 +1,7 @@
 {
   "name": "agent-terminal-manager",
   "productName": "Agent Terminal Manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Manage parallel AI agents across projects and terminals",
   "main": "src/main/main.js",
   "author": "Andreas Vogler",
