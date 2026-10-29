@@ -71,6 +71,8 @@ export async function editProject(ctx, p) {
   const x11Display = I('x11Display', { placeholder: S.platform === 'win32' ? 'localhost:0.0' : 'DISPLAY of the app' });
   const x11Hint = h('div', { class: 'hint' });
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
+  const dockerEnabled = h('input', { type: 'checkbox', checked: p.docker && p.docker.enabled });
+  const dockerCmd = h('input', { value: (p.docker && p.docker.command) || '', placeholder: 'docker', style: { width: '160px' } });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
   const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'e.g. claude (optional)' });
@@ -133,6 +135,8 @@ export async function editProject(ctx, p) {
     grp(sshOnly, h('label', null, 'X11 forwarding'), h('div', null, x11, x11Hint)),
     grp(displayOnly, ...field('X display', x11Display)),
     field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
+    field('Docker', h('div', { class: 'row' }, h('label', { class: 'row' }, dockerEnabled, 'Docker tab: containers, logs, shell, images, volumes'), h('span', { class: 'muted' }, 'CLI'), dockerCmd),
+      'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.'),
     field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
     h('h3', { class: 'full' }, 'Default session (plus button)'),
     field('Name', dsName),
@@ -192,6 +196,7 @@ export async function editProject(ctx, p) {
         x11: x11.value,
         x11Display: x11Display.value.trim(),
         autoReconnect: auto.checked,
+        docker: { enabled: dockerEnabled.checked, command: dockerCmd.value.trim() },
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
         ...(() => {

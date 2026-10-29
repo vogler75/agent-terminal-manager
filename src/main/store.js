@@ -53,6 +53,7 @@ const PROJECT_DEFAULTS = {
   keepAliveCountMax: 3,
   x11: 'off', // ssh X11 forwarding: off | wsl | display
   x11Display: '', // for 'display'; empty = DISPLAY of the app, on Windows localhost:0.0
+  docker: { enabled: false, command: '' }, // Docker tab; command empty = docker
   tmux: true,
   autoReconnect: false,
   thresholdSec: null, // null = global default
@@ -73,6 +74,7 @@ function normalizeProject(p) {
   out.defaultSession = { ...PROJECT_DEFAULTS.defaultSession, ...(p.defaultSession || {}) };
   out.layout = { ...PROJECT_DEFAULTS.layout, ...(p.layout || {}) };
   out.agentSetup = { ...PROJECT_DEFAULTS.agentSetup, ...(p.agentSetup || {}) };
+  out.docker = { ...PROJECT_DEFAULTS.docker, ...(p.docker || {}) };
   out.port = Number(out.port) || 22;
   return out;
 }

@@ -11,6 +11,7 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 - **Status and notifications** — working (yellow) / waiting (green) from output pauses or the terminal bell, exact status for agent sessions; desktop notification when an agent is done or waits for you.
 - **Agent sessions with a chat view** — OpenCode (server API) and any agent speaking the Agent Client Protocol: OpenCode, GitHub Copilot CLI or your own command. Markdown answers, compact tool calls, model and mode picker, slash commands, permission cards, approval level, live token usage.
 - **Files** — drop files onto a terminal to copy them into the shell's current directory on the remote machine; a file browser to download and upload.
+- **Docker** — a lightweight Portainer per project: dashboard with containers, CPU, memory and disk, live stats, start / stop / restart, logs, a shell in a container, images and volumes — over the project's own SSH / WSL connection, without opening a port.
 - **MCP server** — tools to list, read, prompt and wait for sessions, open sessions, run commands and create projects; app tokens for local clients, OAuth sign-in (built-in with approval in the app, or authentik / Keycloak / Entra ID) for claude.ai.
 - **Coding agents** — install Claude Code, Codex, OpenCode, Antigravity, Copilot, pi, Cursor and Qwen Code, and deploy MCP servers, skills (also from Git repositories) and APM packages to them, per project, on the project's machine.
 - **Orchestrators** — OpenCode-based coordinators that react when watched sessions finish (e.g. developer + reviewer loops), with round limits, pause and stop.
@@ -99,6 +100,18 @@ ACP agents are implemented in `src/main/acp.js`; another built-in agent is one e
 - **Files** in the project header (or *Browse files…* in the context menu) opens a file browser in the shell's current directory or the project folder. Double-click opens folders and downloads files; select several entries (Ctrl / Shift) and click **Download** to copy them into a local folder. **Upload…** or dropping files onto the list copies them into the folder shown; **New folder…** creates one.
 
 SSH and WSL transfers run over `ssh` / `wsl.exe` with the terminal's connection settings: files are streamed with `cat`, folders with `tar`; a file is written under a temporary name and renamed when complete. The shell's directory comes from the shell itself (OSC 7), from tmux (`pane_current_path`), or on Linux from the shell process marked with `TERMCLAW_SID`; otherwise the project folder is used.
+
+## Docker
+
+![Docker tab](docs/screenshots/docker.png)
+
+Turn on **Docker** in the project editor and the project gets a **Docker** tab (also in the sidebar and the project header):
+
+- **Dashboard** — running / stopped containers, CPU of all containers (with history), memory used by containers and on the host, disk usage of the filesystem that holds Docker's data, split into images, volumes, containers and build cache, plus the host's load.
+- **Containers** — state, image, compose project, published ports, live CPU (with sparkline), memory against the limit and network I/O, updated every 3 seconds. **■ / ▶ / ↻** stop, start and restart; **Logs** opens a live log view (tail length, follow, timestamps, wrap, copy); **Shell** opens a terminal session in the project running `docker exec -it <container>` with bash, or sh when there is no bash.
+- **Images** and **Volumes** — size, tags, which containers use them, mount points.
+
+How it connects: TermClaw speaks the Docker Engine API through `docker system dial-stdio`, run on the project machine over the project's connection (`ssh … docker system dial-stdio`, `wsl.exe --exec docker system dial-stdio`, or locally) — the transport Docker itself uses for `DOCKER_HOST=ssh://`. Nothing listens on a local port (a forwarded Docker socket would give every local process root-equivalent access), and Docker contexts and rootless setups work as on the command line. The Docker CLI must be installed on the project machine and the user allowed to use the engine (e.g. member of the `docker` group); another CLI path can be set in the project editor. Polling only runs while the tab is visible; the connections close a minute after you leave it. Start, stop and restart are recorded in the audit log.
 
 ## MCP server
 
@@ -190,7 +203,7 @@ npm test
 npm run e2e
 ```
 
-The E2E script drives the real app through Playwright. Environment variables enable additional parts: `TERMCLAW_E2E_SSH=user@host:port` (SSH target with key login and tmux), `TERMCLAW_E2E_WSL=Ubuntu`, `TERMCLAW_E2E_OPENCODE=1` (agent sessions and orchestrators; needs a working OpenCode model), `TERMCLAW_E2E_COPILOT=1`, `TERMCLAW_E2E_APM=1`.
+The E2E script drives the real app through Playwright. Environment variables enable additional parts: `TERMCLAW_E2E_SSH=user@host:port` (SSH target with key login and tmux), `TERMCLAW_E2E_WSL=Ubuntu`, `TERMCLAW_E2E_OPENCODE=1` (agent sessions and orchestrators; needs a working OpenCode model), `TERMCLAW_E2E_COPILOT=1`, `TERMCLAW_E2E_APM=1`, `TERMCLAW_E2E_DOCKER=1` (Docker tab against the Docker engine in the WSL distribution; needs the `alpine` image there).
 
 Screenshots for this README are taken from the real app with a demo setup:
 

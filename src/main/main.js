@@ -8,6 +8,7 @@ const { AgentSession } = require('./agent');
 const { AcpSession, ACP_AGENTS } = require('./acp');
 const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
+const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
@@ -38,7 +39,7 @@ if (!process.env.TERMCLAW_USER_DATA && !app.requestSingleInstanceLock()) {
 }
 
 let win = null;
-let store, sessions, hosts, forwards, audit, mcp, orchestrators;
+let store, sessions, hosts, forwards, docker, audit, mcp, orchestrators;
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send('event', { channel, payload });
@@ -80,6 +81,7 @@ function setup() {
   sessions.acpFactory = (mgr, project, opts) => new AcpSession(mgr, project, opts);
   hosts = new HostMonitor(store, sessions);
   forwards = new ForwardManager(store, sessions);
+  docker = new DockerManager(store);
   mcp = new McpService({ store, sessions, hosts, audit });
   orchestrators = new OrchestratorManager({ store, sessions, mcp, audit, dataDir, notify: (t, b) => notify(t, b) });
 
@@ -104,6 +106,8 @@ function setup() {
   });
   hosts.on('changed', (snap) => send('hosts:status', snap));
   forwards.on('changed', (snap) => send('forwards:status', snap));
+  docker.on('update', (projectId, snap) => send('docker:update', { projectId, snap }));
+  docker.on('logs', (e) => send('docker:logs', e));
   audit.on('entry', (e) => send('audit:entry', e));
   mcp.on('status', (st) => send('mcp:status', st));
   mcp.oauth.on('request', (r) => {
@@ -118,7 +122,7 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
+  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, docker, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
 }
 
 let activeSessionId = null;
@@ -180,11 +184,31 @@ const api = {
     const before = p.id ? store.getProject(p.id) : null;
     const saved = store.saveProject(p);
     if (before && JSON.stringify(before.forwards) !== JSON.stringify(saved.forwards)) forwards.restart(saved.id);
+    const conn = (x) => JSON.stringify([x.type, x.hostId, x.host, x.user, x.port, x.wslDistro, x.docker]);
+    if (before && conn(before) !== conn(saved)) docker.reset(saved.id);
     return saved;
   },
   deleteProject: (id) => {
     for (const s of sessions.list(id)) sessions.close(s.id);
+    docker.reset(id);
     store.deleteProject(id);
+  },
+
+  // Docker tab: polling runs while the tab is visible.
+  dockerWatch: (projectId) => docker.watch(projectId),
+  dockerUnwatch: (projectId) => docker.unwatch(projectId),
+  dockerRefresh: (projectId) => docker.refresh(projectId),
+  dockerAction: async (projectId, containerId, action, name) => {
+    await docker.action(projectId, containerId, action);
+    audit.add({ source: 'app', action: `docker.${action}`, detail: `${store.getProject(projectId).name}: ${name || containerId.slice(0, 12)}` });
+  },
+  dockerLogs: (projectId, containerId, opts) => docker.logs(projectId, containerId, opts),
+  dockerLogsStop: (id) => docker.stopLogs(id),
+  dockerShell: (projectId, container) => {
+    const p = store.getProject(projectId);
+    if (!p) throw new Error('Unknown project');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(container)) throw new Error('Invalid container name');
+    return sessions.open(projectId, { name: `sh-${container}`, command: dockerExecCommand(p, container) }).info();
   },
   moveProject: (id, delta) => store.moveProject(id, delta),
   moveProjectTo: (id, beforeId) => store.moveProjectTo(id, beforeId),
@@ -579,6 +603,7 @@ app.on('before-quit', () => {
   quitting = true;
   try { orchestrators.shutdown(); } catch {}
   try { forwards.shutdown(); } catch {}
+  try { docker.shutdown(); } catch {}
   try { hosts.stop(); } catch {}
   try { sessions.shutdown(); } catch {}
   try { mcp.stop(); } catch {}

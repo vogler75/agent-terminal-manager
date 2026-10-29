@@ -5,6 +5,8 @@
 //   TERMCLAW_E2E_SSH=user@host:port   SSH target with key auth and tmux (enables SSH/tmux/forward tests)
 //   TERMCLAW_E2E_WSL=Ubuntu           WSL distribution with tmux (Windows only)
 //   TERMCLAW_E2E_OPENCODE=1           run OpenCode agent + orchestrator tests (needs a working model)
+//   TERMCLAW_E2E_DOCKER=1             Docker tab tests in the WSL distribution (Docker engine + alpine image there)
+//   TERMCLAW_E2E_ONLY=regex           run only the steps whose name matches (others are skipped)
 //   TERMCLAW_E2E_SHOTS=dir            write screenshots there
 const assert = require('assert');
 const path = require('path');
@@ -24,10 +26,13 @@ const sshSpec = process.env.TERMCLAW_E2E_SSH ? /^(?:(.+)@)?([^:]+)(?::(\d+))?$/.
 const SSH = sshSpec ? { user: sshSpec[1] || '', hostname: sshSpec[2], port: Number(sshSpec[3] || 22) } : null;
 const WSL = IS_WIN ? process.env.TERMCLAW_E2E_WSL : null;
 const OPENCODE = process.env.TERMCLAW_E2E_OPENCODE === '1';
+const DOCKER = WSL && process.env.TERMCLAW_E2E_DOCKER === '1';
 const RUN = 'r' + Date.now().toString(36).slice(-5);
 
 const results = [];
+const ONLY = process.env.TERMCLAW_E2E_ONLY ? new RegExp(process.env.TERMCLAW_E2E_ONLY, 'i') : null;
 async function step(name, fn, { skip } = {}) {
+  if (!skip && ONLY && !ONLY.test(name)) skip = 'TERMCLAW_E2E_ONLY';
   if (skip) { results.push({ name, status: 'skip', info: skip }); console.log(`- SKIP ${name} (${skip})`); return; }
   const t = Date.now();
   try {
@@ -79,6 +84,8 @@ const cfgBase = () => {
   }
   if (WSL) projects.push({ id: 'p-wsl', name: `wsl-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: true, thresholdSec: 2 });
   if (WSL) projects.push({ id: 'p-files', name: `files-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: false, thresholdSec: 2 });
+  if (DOCKER) projects.push({ id: 'p-docker', name: `docker-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: false, thresholdSec: 2, docker: { enabled: true } });
+  if (DOCKER) projects.push({ id: 'p-docker-bad', name: `docker-bad-${RUN}`, type: 'wsl', wslDistro: WSL, directory: '/tmp', tmux: false, docker: { enabled: true, command: 'docker-missing-cli' } });
   return { settings: { mcp: { enabled: true, port: MCP_PORT, bind: '127.0.0.1', allowCreateProject: true, allowCreateDirectory: true, allowRunCommand: true }, notifications: true }, hosts, projects };
 };
 
@@ -451,6 +458,82 @@ const cfgBase = () => {
     await m.send(plain, `cd /tmp && rm -rf ${dir}`);
     await m.close(plain);
   }, { skip: WSL ? null : 'TERMCLAW_E2E_WSL not set' });
+
+  await step('Docker tab: dashboard, live stats, logs, stop/start, volumes, shell in a container', async () => {
+    const name = `tc-e2e-${RUN}`;
+    const vol = `tc-e2e-vol-${RUN}`;
+    const docker = (...a) => spawnSync('wsl.exe', ['-d', WSL, '--exec', 'docker', ...a], { encoding: 'utf8', timeout: 60000 });
+    const state = () => docker('inspect', '-f', '{{.State.Status}}', name).stdout.trim();
+    docker('rm', '-f', name);
+    docker('volume', 'create', vol);
+    const run = docker('run', '-d', '--name', name, '-v', `${vol}:/data`, 'alpine', 'sh', '-c', 'trap "exit 0" TERM; i=0; while true; do i=$((i+1)); echo "tick $i"; sleep 0.3; done');
+    assert.strictEqual(run.status, 0, run.stderr);
+    try {
+      // Docker on and no session: the project opens on the Docker tab
+      await page.click(`#sidebar .proj-name:text("docker-${RUN}")`);
+      const row = page.locator('.dk-table tr', { has: page.locator(`.dk-name:text("${name}")`) });
+      await row.waitFor({ timeout: 30000 });
+      assert.strictEqual(await page.locator('.dk-card').count(), 4);
+      // CPU needs two samples; memory comes with the first
+      await waitFor(async () => /%/.test(await row.locator('.dk-cpu').innerText()), { msg: 'CPU percentage', timeout: 20000 });
+      assert.match(await row.locator('.dk-mem').innerText(), /\d+(\.\d)? (KB|MB)/);
+      await waitFor(async () => /%/.test(await page.locator('.dk-card', { hasText: 'Disk' }).locator('.dk-big').innerText()), { msg: 'host disk usage', timeout: 30000 });
+      await shot('docker-dashboard');
+
+      // Logs: live, without the stream frame headers
+      await row.getByRole('button', { name: 'Logs' }).click();
+      await waitFor(async () => /tick \d+\ntick \d+/.test(await page.locator('.dk-logs').innerText()), { msg: 'log lines' });
+      const first = (await page.locator('.dk-logs').innerText()).match(/tick (\d+)\s*$/)[1];
+      await waitFor(async () => Number((await page.locator('.dk-logs').innerText()).match(/tick (\d+)\s*$/)[1]) > Number(first) + 2, { msg: 'followed log lines' });
+      assert.ok(!/[\x00-\x08]/.test(await page.locator('.dk-logs').innerText()), 'no frame header bytes');
+      await page.getByRole('button', { name: 'Close', exact: true }).click();
+
+      // Stop and start
+      await row.getByRole('button', { name: 'Stop', exact: true }).click();
+      await waitFor(() => state() === 'exited', { msg: 'container stopped', timeout: 30000 });
+      await row.getByRole('button', { name: 'Start', exact: true }).waitFor({ timeout: 15000 });
+      await row.getByRole('button', { name: 'Start', exact: true }).click();
+      await waitFor(() => state() === 'running', { msg: 'container running again', timeout: 30000 });
+      await row.getByRole('button', { name: 'Stop', exact: true }).waitFor({ timeout: 15000 });
+      let audit = [];
+      await waitFor(async () => {
+        audit = await app.evaluate(() => globalThis.__termclaw.audit.list().map((e) => e.action));
+        return audit.includes('docker.stop') && audit.includes('docker.start');
+      }, { msg: 'docker actions in the audit log' }).catch((e) => { throw new Error(`${e.message} (found: ${audit.slice(-8).join(', ')})`); });
+
+      // Volumes: size and the container that uses it
+      await page.locator('.dk-tabs button', { hasText: 'Volumes' }).click();
+      const vrow = page.locator('.dk-table tr', { has: page.locator(`td.dk-vol:text("${vol}")`) });
+      await vrow.waitFor({ timeout: 15000 });
+      assert.match(await vrow.innerText(), new RegExp(name));
+      await page.locator('.dk-tabs button', { hasText: 'Images' }).click();
+      await page.locator('.dk-table td', { hasText: 'alpine:latest' }).first().waitFor({ timeout: 15000 });
+      await page.locator('.dk-tabs button', { hasText: 'Containers' }).click();
+
+      // Shell: a terminal session in the project running docker exec (alpine has no bash: sh)
+      await row.getByRole('button', { name: 'Shell' }).click();
+      const sid = await waitFor(() => m.find('p-docker', `sh-${name}`), { msg: 'shell session' });
+      await waitFor(async () => /# *$/m.test((await m.output(sid)) || ''), { msg: 'container prompt', timeout: 25000 });
+      await m.send(sid, 'cat /etc/alpine-release; ls -d /data');
+      await waitFor(async () => /\d+\.\d+\.\d+\s+\/data/.test(await m.output(sid)), { msg: 'command output from the container' });
+      await m.close(sid);
+
+      // Leaving the tab stops polling
+      await page.click(`#sidebar .proj-name:text("docker-${RUN}")`);
+      await page.click('#sidebar .proj-name:text("lokal")');
+      assert.strictEqual(await app.evaluate(() => globalThis.__termclaw.docker.projects.get('p-docker').watchers), 0);
+
+      // A broken Docker CLI shows the error with its message
+      await page.click(`#sidebar .proj-name:text("docker-bad-${RUN}")`);
+      await page.locator('.dk-error').waitFor({ timeout: 20000 });
+      assert.match(await page.locator('.dk-error').innerText(), /not reachable/);
+      await shot('docker-error');
+      await page.click('#sidebar .proj-name:text("lokal")');
+    } finally {
+      docker('rm', '-f', name);
+      docker('volume', 'rm', vol);
+    }
+  }, { skip: DOCKER ? null : 'TERMCLAW_E2E_DOCKER / TERMCLAW_E2E_WSL not set' });
 
   // ---------------- Phase 7: MCP ----------------
   let client, token, roToken;

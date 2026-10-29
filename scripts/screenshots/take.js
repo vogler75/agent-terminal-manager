@@ -2,7 +2,10 @@
 // Takes the README screenshots (docs/screenshots/*.png) from the real app with a demo configuration.
 //   npm run build:renderer && node scripts/screenshots/take.js
 // Windows: the terminals run PowerShell in this repository.
+// SHOT_DOCKER_WSL=Ubuntu also takes the Docker tab, with demo containers started in that WSL
+// distribution (needs Docker there and the alpine image; the containers are removed afterwards).
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 const os = require('os');
 const path = require('path');
 const { launch, sleep } = require('../../test-e2e/launch');
@@ -11,6 +14,23 @@ const ROOT = path.join(__dirname, '..', '..');
 const OUT = path.join(ROOT, 'docs', 'screenshots');
 const AGENT = `node ${path.join(__dirname, 'demo-acp-agent.js').replace(/\\/g, '/')}`;
 const IS_WIN = process.platform === 'win32';
+const DOCKER_WSL = process.env.SHOT_DOCKER_WSL;
+const DEMO = [ // name, CPU load (busy loops), memory to hold (MB)
+  ['shop-web', 0, 24], ['shop-api', 1, 96], ['shop-worker', 2, 160], ['shop-cache', 0, 48],
+];
+const docker = (...a) => spawnSync('wsl.exe', ['-d', DOCKER_WSL, '--exec', 'docker', ...a], { encoding: 'utf8', timeout: 60000 });
+function startDemoContainers() {
+  for (const [name, busy, mb] of DEMO) {
+    docker('rm', '-f', name);
+    const script = `trap "exit 0" TERM; head -c ${mb}m /dev/zero > /dev/shm/hold; ${'while :; do :; done & '.repeat(busy)}i=0; while :; do i=$((i+1)); echo "[${name}] request $i handled in $((i % 40 + 3)) ms"; sleep 0.4; done`;
+    docker('run', '-d', '--name', name, '--label', 'com.docker.compose.project=shop', '--shm-size', `${mb + 16}m`, '-v', 'shop-data:/data', ...(name === 'shop-web' ? ['-p', '8080:80'] : []), 'alpine', 'sh', '-c', script);
+  }
+  docker('create', '--name', 'shop-migrate', '--label', 'com.docker.compose.project=shop', 'alpine', 'true');
+}
+function removeDemoContainers() {
+  for (const name of [...DEMO.map((d) => d[0]), 'shop-migrate']) docker('rm', '-f', name);
+  docker('volume', 'rm', 'shop-data');
+}
 
 const config = {
   settings: { fontSize: 13, notifications: false, mcp: { enabled: true, port: 47000 + Math.floor(Math.random() * 800), bind: '127.0.0.1', oauth: true, oauthMode: 'builtin', publicUrl: 'https://termclaw.example.com/mcp' } },
@@ -28,6 +48,7 @@ const config = {
     },
     { id: 'p-shop', name: 'web-shop', type: 'ssh', hostId: 'h1', directory: '~/work/web-shop', tmux: true, terminals: [], commands: [] },
     { id: 'p-api', name: 'payments-api', type: 'wsl', wslDistro: 'Ubuntu', directory: '/srv/payments', tmux: true, terminals: [], commands: [] },
+    ...(DOCKER_WSL ? [{ id: 'p-docker', name: 'shop-stack', type: 'wsl', wslDistro: DOCKER_WSL, directory: '/tmp', tmux: false, terminals: [], commands: [], docker: { enabled: true } }] : []),
   ],
   mcpLibrary: [
     { id: 'm-gh', name: 'github', type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
@@ -49,6 +70,7 @@ const config = {
   }
   config.settings.skillsDir = skills;
 
+  if (DOCKER_WSL) startDemoContainers();
   const { app, page } = await launch({ config });
   await page.setViewportSize({ width: 1440, height: 880 });
   const shot = async (name) => { await sleep(500); await page.screenshot({ path: path.join(OUT, name + '.png') }); console.log('saved', name); };
@@ -125,7 +147,17 @@ const config = {
     await page.getByRole('button', { name: 'Agents ▾' }).click();
     await shot('agents-menu');
     await page.keyboard.press('Escape');
+
+    // 11) Docker tab with demo containers (optional)
+    if (DOCKER_WSL) {
+      await page.mouse.click(5, 5);
+      await page.click('#sidebar .proj-name:text("shop-stack")');
+      await page.waitForSelector('.dk-table .dk-name:text("shop-worker")', { timeout: 30000 });
+      await sleep(75000); // the sparklines show 2 minutes of CPU history
+      await shot('docker');
+    }
   } finally {
     await app.close().catch(() => {});
+    if (DOCKER_WSL) removeDemoContainers();
   }
 })().catch((e) => { console.error(e); process.exit(1); });
