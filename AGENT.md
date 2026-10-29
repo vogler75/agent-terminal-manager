@@ -4,6 +4,8 @@
 
 - Do **not** trigger GitHub Actions (no `gh workflow run`, no re-runs, no re-enabling push/PR triggers).
 - `.github/workflows/build.yml` runs only on manual dispatch (`workflow_dispatch`). The maintainer starts it by hand once the app has reached a stable state.
+- `.github/workflows/release.yml` runs when a version tag `v*` is pushed. Only the maintainer creates and pushes version tags; agents never push tags.
+- The version lives in `VERSION`; change it only with `node scripts/version.js <x.y.z>` (also updates `package.json` and `package-lock.json`).
 - Verify changes locally instead: `npm test` (unit tests) and `npm run e2e` (Playwright drives the real app; see README for the optional `ATM_E2E_SSH`, `ATM_E2E_WSL` and `ATM_E2E_OPENCODE` targets).
 
 ## Project basics

@@ -23,7 +23,27 @@ npm run dist:win
 npm run dist:mac
 ```
 
-macOS packages must be built on a Mac; `.github/workflows/build.yml` builds both platforms in GitHub Actions.
+macOS packages must be built on a Mac; `.github/workflows/build.yml` builds both platforms in GitHub Actions (manual start).
+
+### Versions and releases
+
+The release number is in [`VERSION`](VERSION). Every build copies it into `package.json` (`node scripts/version.js`), so the app, the exe file version and the artifact names all use it. To publish a release:
+
+```bash
+npm run set-version -- 0.2.0
+```
+
+Commit `VERSION`, `package.json` and `package-lock.json` on `main`, then tag that commit and push the tag:
+
+```bash
+git tag v0.2.0
+```
+
+```bash
+git push origin v0.2.0
+```
+
+The tag starts `.github/workflows/release.yml`: it checks that the tag is on `main` and matches `VERSION`, runs the unit tests, builds the Windows x64 installer and portable exe and the macOS Apple silicon dmg and zip, starts each packaged app once, and creates a GitHub release with the files. The builds are not code-signed (Windows SmartScreen asks once; on macOS remove the quarantine flag, see the release notes).
 
 Tests:
 

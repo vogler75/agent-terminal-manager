@@ -11,9 +11,10 @@
     "start": "npm run build:renderer && electron .",
     "test": "node --test \"test/**/*.test.js\"",
     "e2e": "npm run build:renderer && node test-e2e/run.js",
-    "dist": "npm run build:renderer && electron-builder",
-    "dist:win": "npm run build:renderer && electron-builder --win",
-    "dist:mac": "npm run build:renderer && electron-builder --mac"
+    "set-version": "node scripts/version.js",
+    "dist": "node scripts/version.js && npm run build:renderer && electron-builder",
+    "dist:win": "node scripts/version.js && npm run build:renderer && electron-builder --win",
+    "dist:mac": "node scripts/version.js && npm run build:renderer && electron-builder --mac"
   },
   "build": {
     "appId": "com.vogler.agent-terminal-manager",
