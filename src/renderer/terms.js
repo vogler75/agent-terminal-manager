@@ -51,6 +51,10 @@ export class TermView {
         return false;
       }
       if ((mod && e.shiftKey && e.code === 'KeyV') || (isMac && e.metaKey && e.code === 'KeyV') || (!isMac && e.ctrlKey && e.code === 'KeyV')) {
+        // The browser default and the Edit menu accelerator would fire a native paste event as well,
+        // which xterm handles too: prevent it and swallow a native paste right after this one.
+        e.preventDefault();
+        this.shortcutPasteAt = Date.now();
         navigator.clipboard.readText().then((t) => t && this.term.paste(t));
         return false;
       }
@@ -58,6 +62,10 @@ export class TermView {
       if (onKey && onKey(e)) return false;
       return true;
     });
+
+    this.el.addEventListener('paste', (e) => {
+      if (Date.now() - (this.shortcutPasteAt || 0) < 500) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
 
     this.ro = new ResizeObserver(() => this.scheduleFit());
     this.ro.observe(this.el);
