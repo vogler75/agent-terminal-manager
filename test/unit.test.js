@@ -205,3 +205,109 @@ test('local shell: any project can open one; no tmux, no default session, home d
     assert.strictEqual(opened, s);
   } finally { TS.prototype.spawn = spawn; }
 });
+
+test('git: porcelain v2 status with rename, untracked, conflict and branch header', () => {
+  const { parseStatus } = require('../src/main/git');
+  const z = [
+    '# branch.oid 1234567890abcdef', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -1',
+    '1 .M N... 100644 100644 100644 aaa bbb src/a file.txt',
+    '2 R. N... 100644 100644 100644 aaa bbb R100 new name.txt', 'old name.txt',
+    '1 A. N... 000000 100644 100644 000 bbb added.txt',
+    'u UU N... 100644 100644 100644 100644 a b c conflict.txt',
+    '? untracked dir/x.js', '',
+  ].join('\0');
+  const s = parseStatus(z);
+  assert.deepStrictEqual(s.branch, { oid: '1234567890abcdef', head: 'main', upstream: 'origin/main', ahead: 2, behind: 1 });
+  assert.deepStrictEqual(s.files.map((f) => [f.path, f.status, f.orig || '']), [
+    ['src/a file.txt', 'modified', ''], ['new name.txt', 'renamed', 'old name.txt'], ['added.txt', 'new', ''], ['conflict.txt', 'conflict', ''], ['untracked dir/x.js', 'new', ''],
+  ]);
+  assert.strictEqual(parseStatus('# branch.oid (initial)\0# branch.head master\0').branch.initial, true);
+  assert.strictEqual(parseStatus('# branch.oid abc\0# branch.head (detached)\0').branch.detached, true);
+});
+
+test('git: batch output is split into stdout, exit code and stderr per command', () => {
+  const { parseBatch, batchScript } = require('../src/main/git');
+  const out = 'line1\nline2\n@@TCG 0 0\n@@TCGE warning: x\nsecond\0out\n@@TCG 1 128\n@@TCGE fatal: bad\n@@TCGE more\n';
+  const r = parseBatch(out, 3);
+  assert.deepStrictEqual(r[0], { code: 0, out: 'line1\nline2', err: 'warning: x' });
+  assert.deepStrictEqual(r[1], { code: 128, out: 'second\0out', err: 'fatal: bad\nmore' });
+  assert.strictEqual(r[2], null);
+  const script = batchScript('~/src/my repo', [['commit', '-m', "it's done"]], { stop: true });
+  assert.match(script, /cd ~\/'src\/my repo'/);
+  assert.match(script, /git 'commit' '-m' 'it'\\''s done'/);
+  assert.match(script, /exit 0/);
+});
+
+test('git: branches, log and name-status parsing; ref names are checked', () => {
+  const { parseBranches, parseLog, parseNameStatus, badRef, parseScan } = require('../src/main/git');
+  const US = '\x1f';
+  const b = parseBranches([
+    ['refs/heads/main', 'abc1234', 'origin/main', '[ahead 2, behind 3]', '1700000000', '*', 'Fix it'].join(US),
+    ['refs/heads/old', 'def', 'origin/old', '[gone]', '1600000000', ' ', 'x'].join(US),
+    ['refs/remotes/origin/HEAD', 'abc', '', '', '0', ' ', ''].join(US),
+    ['refs/remotes/origin/feature/x', 'fff', '', '', '1700000001', ' ', 'y'].join(US),
+  ].join('\n'));
+  assert.deepStrictEqual(b.local.map((x) => [x.name, x.current, x.ahead, x.behind, x.gone]), [['main', true, 2, 3, false], ['old', false, 0, 0, true]]);
+  assert.deepStrictEqual(b.remote.map((x) => x.name), ['origin/feature/x']);
+  const log = parseLog(['h1', 'h1s', 'Anna', 'a@x', '1700000000', 'p1 p2', 'HEAD -> main, tag: v1', 'Merge'].join(US) + '\x1e\n' + ['h2', 'h2s', 'Bob', 'b@x', '1600000000', '', '', 'First'].join(US) + '\x1e\n');
+  assert.deepStrictEqual(log.map((c) => [c.hash, c.parents.length, c.refs, c.subject]), [['h1', 2, ['HEAD -> main', 'tag: v1'], 'Merge'], ['h2', 0, [], 'First']]);
+  assert.deepStrictEqual(parseNameStatus('M\0a.txt\0R087\0old.txt\0new.txt\0A\0b c.txt\0'), [
+    { status: 'modified', path: 'a.txt' }, { status: 'renamed', orig: 'old.txt', path: 'new.txt' }, { status: 'new', path: 'b c.txt' },
+  ]);
+  for (const bad of ['-x', 'a b', 'a..b', 'a:b', '', 'x~1']) assert.ok(badRef(bad), bad);
+  for (const ok of ['main', 'feature/x-1', 'release_2.0']) assert.ok(!badRef(ok), ok);
+  const repos = parseScan('@@TCGR /home/u/src/app\n# branch.oid abc\n# branch.head main\n# branch.ab +1 -0\nchanges 4\n@@TCGR /home/u/tools\n# branch.head dev\nchanges 0\n');
+  assert.deepStrictEqual(repos.map((r) => [r.name, r.head, r.ahead, r.changes]), [['app', 'main', 1, 4], ['tools', 'dev', 0, 0]]);
+});
+
+test('git: actions run in a real repository (local git)', async (t) => {
+  const { spawnSync } = require('child_process');
+  if (spawnSync('git', ['--version']).status !== 0) return t.skip('git not installed');
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const { GitManager } = require('../src/main/git');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tc-git-'));
+  const repo = path.join(root, 'app');
+  const g = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+  fs.mkdirSync(path.join(root, 'node_modules', 'dep'), { recursive: true });
+  spawnSync('git', ['init', '-q', '-b', 'main', repo]);
+  spawnSync('git', ['init', '-q', path.join(root, 'node_modules', 'dep')]);
+  g('config', 'user.email', 't@t'); g('config', 'user.name', 'T'); g('config', 'core.autocrlf', 'false');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  g('add', '-A'); g('commit', '-qm', 'first');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  fs.writeFileSync(path.join(repo, 'b.txt'), 'new\n');
+  fs.writeFileSync(path.join(repo, 'c.txt'), 'junk\n');
+  // On Windows the local project runs git.exe directly; elsewhere the same POSIX script as over ssh.
+  const project = { id: 'p', type: 'local', git: { enabled: true, paths: root, depth: 3 } };
+  const mgr = new GitManager({ getProject: () => project, getHost: () => null });
+  const { repos } = await mgr.repos('p');
+  assert.deepStrictEqual(repos.map((r) => [r.name, r.changes]), [['app', 3]]); // node_modules is skipped
+  const real = repos[0].path;
+  let st = await mgr.state('p', real);
+  assert.deepStrictEqual(st.files.map((f) => f.path + ':' + f.status), ['a.txt:modified', 'b.txt:new', 'c.txt:new']);
+  assert.match((await mgr.diff('p', real, st.files[0])).diff, /-one\n\+two/);
+  assert.match((await mgr.diff('p', real, st.files[1])).diff, /\+new/);
+  await mgr.commit('p', real, { files: [{ path: 'b.txt' }], summary: 'Add b', description: 'with body' });
+  st = await mgr.state('p', real);
+  assert.deepStrictEqual(st.files.map((f) => f.path), ['a.txt', 'c.txt']);
+  assert.deepStrictEqual(st.log.map((c) => c.subject), ['Add b', 'first']);
+  const info = await mgr.commitInfo('p', real, st.log[0].hash);
+  assert.strictEqual(info.body, 'with body');
+  assert.deepStrictEqual(info.files, [{ status: 'new', path: 'b.txt' }]);
+  await mgr.discard('p', real, st.files);
+  st = await mgr.state('p', real);
+  assert.deepStrictEqual(st.files, []);
+  assert.strictEqual(fs.readFileSync(path.join(repo, 'a.txt'), 'utf8'), 'one\n');
+  assert.ok(!fs.existsSync(path.join(repo, 'c.txt')));
+  await mgr.createBranch('p', real, 'topic');
+  st = await mgr.state('p', real);
+  assert.strictEqual(st.branch.head, 'topic');
+  await mgr.undoCommit('p', real); // no upstream: the commit is local
+  st = await mgr.state('p', real);
+  assert.deepStrictEqual(st.files.map((f) => f.path + ':' + f.staged), ['b.txt:true']);
+  await assert.rejects(mgr.push('p', real), /no remote/);
+  await assert.rejects(mgr.createBranch('p', real, '--force'), /Invalid branch/);
+  fs.rmSync(root, { recursive: true, force: true });
+});

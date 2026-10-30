@@ -127,6 +127,10 @@ export async function editProject(ctx, p) {
   const auto = h('input', { type: 'checkbox', checked: p.autoReconnect });
   const dockerEnabled = h('input', { type: 'checkbox', checked: p.docker && p.docker.enabled });
   const monitorEnabled = h('input', { type: 'checkbox', checked: p.monitor && p.monitor.enabled });
+  const gitCfg = p.git || {};
+  const gitEnabled = h('input', { type: 'checkbox', checked: gitCfg.enabled });
+  const gitPaths = h('textarea', { rows: 2, placeholder: 'One folder per line; empty = the start directory (or the home directory)' }, gitCfg.paths || '');
+  const gitDepth = h('input', { type: 'number', value: gitCfg.depth || 3, min: 1, max: 8, style: { width: '70px' } });
   const dockerCmd = h('input', { value: (p.docker && p.docker.command) || '', placeholder: 'docker', style: { width: '160px' } });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
   const ls = p.localShell || {};
@@ -212,6 +216,10 @@ export async function editProject(ctx, p) {
       'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.')),
     grp(posixOnly, ...field('Monitor', h('label', { class: 'row' }, monitorEnabled, 'Monitor tab: CPU, memory, disk and network I/O, disk usage per mount, programs'),
       'For Linux machines (SSH, WSL or local Linux). Reads /proc over one connection while the tab is open; nothing is installed on the machine.')),
+    grp(posixOnly, ...field('Git', h('div', null,
+      h('label', { class: 'row' }, gitEnabled, 'Git tab: changed files, diff, commit, push and pull, branches, history'),
+      h('div', { class: 'row', style: { marginTop: '6px', alignItems: 'flex-start' } }, gitPaths, h('span', { class: 'muted', style: { whiteSpace: 'nowrap', paddingTop: '6px' } }, 'depth'), gitDepth)),
+      'Searches these folders on the project machine for git repositories (.git), skipping hidden folders and node_modules. Uses the git command there; push and pull need keys or credentials that work without a prompt.')),
     field('Status threshold (s)', thr, 'No output for longer than this → green dot (waiting)'),
     h('h3', { class: 'full' }, 'Default session (plus button)'),
     field('Name', dsName),
@@ -282,6 +290,7 @@ export async function editProject(ctx, p) {
         autoReconnect: auto.checked,
         docker: { enabled: dockerEnabled.checked, command: dockerCmd.value.trim() },
         monitor: { enabled: monitorEnabled.checked },
+        git: { enabled: gitEnabled.checked, paths: gitPaths.value.trim(), depth: Math.max(1, Math.min(8, Number(gitDepth.value) || 3)) },
         localShell: { shell: lsShell.value, directory: lsDir.value.trim() },
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },

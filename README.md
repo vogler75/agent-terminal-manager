@@ -18,6 +18,7 @@ Desktop app for Windows and macOS that keeps many AI coding agents running in pa
 - **Coding agents** — install Claude Code, Codex, OpenCode, Antigravity, Copilot, pi, Cursor and Qwen Code, and deploy MCP servers, skills (also from Git repositories) and APM packages to them, per project, on the project's machine.
 - **Orchestrators** — OpenCode-based coordinators that react when watched sessions finish (e.g. developer + reviewer loops), with round limits, pause and stop.
 - **Developer hosts** — a directory of your Linux machines with reachability and session counts; projects reference a host.
+- Git tab per project in the style of GitHub Desktop: repositories under the project folders, changes with diff, commit, push and pull, branches, history.
 - Saved commands per project, drag & drop ordering of projects and sessions, keyboard shortcuts, audit log of every MCP and orchestrator action, JSON export / import.
 
 ## Install
@@ -116,6 +117,16 @@ Turn on **Monitor** in the project editor and the project gets a **Monitor** tab
 - **Programs** — the busiest processes with CPU, memory, threads and command line; sortable and filterable by command, user or PID.
 
 How it works: one process on the machine prints a sample of `/proc` every 2 seconds over the project's connection (`ssh … sh -c`, `wsl.exe --exec bash`), and TermClaw computes the rates from consecutive samples. Nothing is installed on the machine and no port is opened; the process stops 15 seconds after you leave the tab.
+
+## Git
+
+Turn on **Git** in the project editor and the project gets a **Git** tab (sidebar and project header), laid out like GitHub Desktop. TermClaw searches the configured folders on the project machine — SSH host, WSL distribution or this computer — for git repositories (one folder per line, empty = the start directory; default depth 3, hidden folders and node_modules are skipped).
+
+- **Toolbar** — *Current repository* (all repositories found, with their branch and number of changes), *Current branch* (switch, create, delete; remote branches get a tracking branch) and one button that offers what is due: *Publish branch*, *Push* (with the commits ahead), *Pull* (fast-forward only) or *Fetch*. The ▾ next to it runs fetch, pull or push directly.
+- **Changes** — the changed files with a checkbox each (all checked by default) and the diff of the selected file against the last commit, with line numbers. Commit the checked files with a summary and an optional description (Ctrl+Enter). Right-click a file to discard its changes (new files are deleted; you confirm first), copy its path or show it in the file browser.
+- **History** — the last 300 commits with author, time, tags and branches; commits not pushed yet are marked ↑. Select one to see its message, files and diffs. Right-click to undo the last commit (when it is not pushed), revert a commit or copy its SHA.
+
+How it works: TermClaw runs the git command on the project machine — several commands in one script over one ssh connection, or git.exe directly for local projects on Windows — and refreshes the selected repository every 6 seconds while the tab is open. git never asks for passwords there, so push, pull and fetch need SSH keys or a credential helper that work without a prompt. Commits, pushes, discards and branch changes are written to the audit log.
 
 ## PowerShell remoting (Windows machines)
 

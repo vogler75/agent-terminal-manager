@@ -7,6 +7,7 @@ import * as agents from './agents.js';
 import * as files from './files.js';
 import * as docker from './docker.js';
 import * as monitor from './monitor.js';
+import * as git from './git.js';
 
 const call = (m, ...a) => window.termclaw.call(m, ...a);
 
@@ -39,14 +40,20 @@ const isMac = () => S.platform === 'darwin';
 export const project = (id) => S.config.projects.find((p) => p.id === id);
 export const projectSessions = (pid) => [...S.sessions.values()].filter((s) => s.projectId === pid);
 const mode = (p) => (p && p.layout && p.layout.mode) || 'tabs';
-const dockerOn = (p) => !!(p && p.docker && p.docker.enabled);
-// The Docker tab is shown when chosen, or when Docker is on and there is no session.
-const monitorOn = (p) => !!(p && p.monitor && p.monitor.enabled);
-const dockerActive = (p) => dockerOn(p) && (S.active[p.id] === 'docker' || (!projectSessions(p.id).length && !(monitorOn(p) && S.active[p.id] === 'monitor')));
-// The Monitor tab is shown when chosen, or when it is the only extra tab and there is no session.
-const monitorActive = (p) => monitorOn(p) && (S.active[p.id] === 'monitor' || (!projectSessions(p.id).length && !dockerOn(p)));
-function showDocker(pid) { S.projectId = pid; S.view = 'project'; S.active[pid] = 'docker'; render(); }
-function showMonitor(pid) { S.projectId = pid; S.view = 'project'; S.active[pid] = 'monitor'; render(); }
+// Extra tabs of a project, before its sessions. Each module has mount(ctx, el, projectId) and unmount().
+const GIT_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#f05133" stroke-width="1.7" stroke-linecap="round"><circle cx="4.5" cy="3.2" r="1.7"/><circle cx="4.5" cy="12.8" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 4.9v6.2M11.5 6.9c0 3.2-7 2.2-7 4.2"/></svg>';
+const EXTRAS = [
+  { key: 'docker', label: 'Docker', glyph: () => '🐳', title: 'Docker containers, images and volumes', on: (p) => !!(p.docker && p.docker.enabled), mod: docker },
+  { key: 'monitor', label: 'Monitor', glyph: () => '📈', title: 'CPU, memory, disk and network I/O, mounts and programs of the machine', on: (p) => !!(p.monitor && p.monitor.enabled), mod: monitor },
+  { key: 'git', label: 'Git', glyph: () => h('span', { class: 'git-glyph', html: GIT_SVG }), title: 'Git repositories: changes, commit, push and pull, branches, history', on: (p) => !!(p.git && p.git.enabled), mod: git },
+];
+const extrasOn = (p) => (p ? EXTRAS.filter((x) => x.on(p)) : []);
+// The extra tab that is shown: the chosen one, or the first one when the project has no session.
+function activeExtra(p) {
+  const on = extrasOn(p);
+  return on.find((x) => x.key === S.active[p.id]) || (!projectSessions(p.id).length ? on[0] : null) || null;
+}
+function showExtra(pid, key) { S.projectId = pid; S.view = 'project'; S.active[pid] = key; render(); }
 
 function projectStatus(pid) {
   const list = projectSessions(pid);
@@ -172,7 +179,7 @@ function renderSidebar() {
       onclick: () => { S.projectId = p.id; S.view = 'project'; render(); focusActive(); },
       oncontextmenu: (e) => { e.preventDefault(); projectMenu(e, p); },
     },
-    h('span', { class: 'caret', onclick: (e) => { e.stopPropagation(); collapsed ? S.collapsed.delete(p.id) : S.collapsed.add(p.id); renderSidebar(); } }, list.length || dockerOn(p) ? (collapsed ? '▸' : '▾') : ''),
+    h('span', { class: 'caret', onclick: (e) => { e.stopPropagation(); collapsed ? S.collapsed.delete(p.id) : S.collapsed.add(p.id); renderSidebar(); } }, list.length || extrasOn(p).length ? (collapsed ? '▸' : '▾') : ''),
     dot(projectStatus(p.id), { 'data-pdot': p.id }),
     h('span', { class: 'proj-name' }, p.name),
     h('span', { class: 'proj-type' }, p.type === 'ssh' ? (host ? host.name : 'ssh') : p.type === 'psremote' ? (p.host || 'winrm') : p.type),
@@ -182,13 +189,10 @@ function renderSidebar() {
       h('button', { class: 'icon', title: 'Edit project', onclick: (e) => { e.stopPropagation(); pages.editProject(ctx, p); } }, '⚙')));
     const node = h('div', { class: 'proj' + (selected ? ' selected' : '') }, head);
     if (!collapsed) {
-      if (dockerOn(p)) {
-        node.appendChild(h('div', { class: 'sess dk-sess' + (selected && dockerActive(p) ? ' active' : ''), title: 'Docker containers, images and volumes', onclick: () => showDocker(p.id) },
-          h('span', { class: 'dk-sess-icon' }, '🐳'), h('span', { class: 'sess-name' }, 'Docker')));
-      }
-      if (monitorOn(p)) {
-        node.appendChild(h('div', { class: 'sess dk-sess' + (selected && monitorActive(p) ? ' active' : ''), title: 'CPU, memory, disk and network I/O, mounts and programs of the machine', onclick: () => showMonitor(p.id) },
-          h('span', { class: 'dk-sess-icon' }, '📈'), h('span', { class: 'sess-name' }, 'Monitor')));
+      const ax = selected ? activeExtra(p) : null;
+      for (const x of extrasOn(p)) {
+        node.appendChild(h('div', { class: 'sess dk-sess' + (ax === x ? ' active' : ''), title: x.title, onclick: () => showExtra(p.id, x.key) },
+          h('span', { class: 'dk-sess-icon' }, x.glyph()), h('span', { class: 'sess-name' }, x.label)));
       }
       for (const s of list) {
         const isActive = selected && activeSessionId(p.id) === s.id;
@@ -275,8 +279,7 @@ function projectMenu(e, p) {
     { label: 'New ACP agent: GitHub Copilot', action: () => openSession(p.id, { kind: 'acp', acpAgent: 'copilot', name: 'copilot', command: '' }) },
     { label: 'Start all terminals', action: () => startAll(p.id) },
     { label: 'Browse files…', action: () => files.openBrowser(ctx, p.id) },
-    ...(dockerOn(p) ? [{ label: 'Docker', action: () => showDocker(p.id) }] : []),
-    ...(monitorOn(p) ? [{ label: 'Monitor', action: () => showMonitor(p.id) }] : []),
+    ...extrasOn(p).map((x) => ({ label: x.label, action: () => showExtra(p.id, x.key) })),
     '-',
     { label: 'Tile view', action: () => { S.projectId = p.id; S.view = 'project'; setMode(p, 'tiles'); } },
     { label: 'Edit…', action: () => pages.editProject(ctx, p) },
@@ -360,14 +363,11 @@ async function startAll(pid) {
 }
 
 // ---------- main area ----------
-let dockerShown = false;
-let monitorShown = false;
+let extraShown = null;
 function renderMain() {
-  dockerShown = false;
-  monitorShown = false;
+  extraShown = null;
   renderMainView();
-  if (!dockerShown) docker.unmount();
-  if (!monitorShown) monitor.unmount();
+  for (const x of EXTRAS) if (x.key !== extraShown) x.mod.unmount();
 }
 
 function renderMainView() {
@@ -404,6 +404,7 @@ function renderProject(main) {
   const list = projectSessions(p.id);
   const host = p.hostId ? S.config.hosts.find((x) => x.id === p.hostId) : null;
   const m = mode(p);
+  const ax = activeExtra(p);
   main.appendChild(h('div', { class: 'main-head' },
     dot(projectStatus(p.id), { 'data-pdot': p.id }),
     h('span', { class: 'title' }, p.name),
@@ -418,8 +419,7 @@ function renderProject(main) {
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
     h('button', { class: m === 'tiles' ? 'active' : '', onclick: () => setMode(p, 'tiles'), title: 'Tile view (Ctrl+Shift+G)' }, 'Tiles'),
     h('button', { title: 'Browse files on the project machine, upload and download (or drop files onto a terminal)', onclick: () => { const sid = activeSessionId(p.id); const s = sid && S.sessions.get(sid); s ? browseFrom(s) : files.openBrowser(ctx, p.id); } }, 'Files'),
-    dockerOn(p) ? h('button', { class: dockerActive(p) ? 'active' : '', title: 'Docker containers, images and volumes', onclick: () => (dockerActive(p) && list.length ? selectSession(activeSessionId(p.id)) : showDocker(p.id)) }, 'Docker') : null,
-    monitorOn(p) ? h('button', { class: monitorActive(p) ? 'active' : '', title: 'CPU, memory, disk and network I/O, mounts and programs of the machine', onclick: () => (monitorActive(p) && list.length ? selectSession(activeSessionId(p.id)) : showMonitor(p.id)) }, 'Monitor') : null,
+    extrasOn(p).map((x) => h('button', { class: ax === x ? 'active' : '', title: x.title, onclick: () => (ax === x && list.length ? selectSession(activeSessionId(p.id)) : showExtra(p.id, x.key)) }, x.label)),
     h('button', { title: 'Install coding agents, deploy MCP servers and skills', onclick: (e) => agents.agentsMenu(ctx, e, p, activeSessionId(p.id)) }, 'Agents ▾'),
     h('button', { class: 'icon', title: 'Edit project', onclick: () => pages.editProject(ctx, p) }, '⚙')));
 
@@ -434,7 +434,7 @@ function renderProject(main) {
       }, c.name))));
   }
 
-  if (!list.length && !dockerOn(p) && !monitorOn(p)) {
+  if (!list.length && !extrasOn(p).length) {
     main.appendChild(h('div', { class: 'content' }, h('div', { class: 'empty' },
       h('div', null, 'No running sessions in this project.'),
       h('div', { class: 'row' },
@@ -443,14 +443,11 @@ function renderProject(main) {
     return;
   }
 
-  const dk = dockerActive(p);
-  const mk = !dk && monitorActive(p);
-  if (m === 'tiles' && list.length > 1 && !dk && !mk) return renderTiles(main, p, list);
+  if (m === 'tiles' && list.length > 1 && !ax) return renderTiles(main, p, list);
 
-  const aid = dk || mk ? null : activeSessionId(p.id);
+  const aid = ax ? null : activeSessionId(p.id);
   main.appendChild(h('div', { class: 'tabs' },
-    dockerOn(p) ? h('div', { class: 'tab dk-tab' + (dk ? ' active' : ''), title: 'Docker containers, images and volumes', onclick: () => showDocker(p.id) }, h('span', { class: 'dk-whale', style: { fontSize: '12px' } }, '🐳'), 'Docker') : null,
-    monitorOn(p) ? h('div', { class: 'tab dk-tab' + (mk ? ' active' : ''), title: 'CPU, memory, disk and network I/O, mounts and programs of the machine', onclick: () => showMonitor(p.id) }, h('span', { style: { fontSize: '12px' } }, '📈'), 'Monitor') : null,
+    extrasOn(p).map((x) => h('div', { class: 'tab dk-tab' + (ax === x ? ' active' : ''), title: x.title, onclick: () => showExtra(p.id, x.key) }, h('span', { style: { fontSize: '12px' } }, x.glyph()), x.label)),
     list.map((s) => h('div', {
     class: 'tab' + (s.id === aid ? ' active' : ''),
     onclick: () => selectSession(s.id),
@@ -461,8 +458,7 @@ function renderProject(main) {
   }, dot(s.status, { 'data-dot': s.id }), s.shell ? h('span', { class: 'local-tag', title: 'Local shell on this computer' }, '⌂') : null, s.name, h('span', { class: 'x', title: 'Close', onclick: (e) => { e.stopPropagation(); closeSession(s.id); } }, '×')))));
   const content = h('div', { class: 'content' });
   main.appendChild(content);
-  if (dk) { dockerShown = true; docker.mount(ctx, content, p.id); return; }
-  if (mk) { monitorShown = true; monitor.mount(ctx, content, p.id); return; }
+  if (ax) { extraShown = ax.key; ax.mod.mount(ctx, content, p.id); return; }
   mountSession(content, S.sessions.get(aid), { fontSize: S.config.settings.fontSize || 13 });
 }
 
@@ -706,8 +702,8 @@ on('mcp:status', (st) => { S.mcp = st; renderSoon(); });
 on('oauth:request', (r) => pages.oauthApproval(ctx, r));
 on('oauth:decided', ({ id }) => pages.oauthDecided(ctx, id));
 on('config:changed', (cfg) => {
-  const structural = JSON.stringify(cfg.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory, p.docker, p.monitor])) + JSON.stringify(cfg.hosts) !==
-    JSON.stringify(S.config.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory, p.docker, p.monitor])) + JSON.stringify(S.config.hosts);
+  const structural = JSON.stringify(cfg.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory, p.docker, p.monitor, p.git])) + JSON.stringify(cfg.hosts) !==
+    JSON.stringify(S.config.projects.map((p) => [p.id, p.name, p.type, p.commands, p.forwards, p.layout, p.terminals, p.hostId, p.directory, p.docker, p.monitor, p.git])) + JSON.stringify(S.config.hosts);
   S.config = cfg;
   if (structural && !['settings', 'orch', 'mcp'].includes(S.view)) renderSoon();
 });

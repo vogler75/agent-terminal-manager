@@ -10,6 +10,7 @@ const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
 const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
 const { MonitorManager } = require('./monitor');
+const { GitManager } = require('./git');
 const { detectLocalShells } = require('./connect');
 const { testConnection: psremoteTest } = require('./psremote');
 const { AuditLog } = require('./audit');
@@ -42,7 +43,7 @@ if (!process.env.TERMCLAW_USER_DATA && !app.requestSingleInstanceLock()) {
 }
 
 let win = null;
-let store, sessions, hosts, forwards, docker, monitor, audit, mcp, orchestrators;
+let store, sessions, hosts, forwards, docker, monitor, git, audit, mcp, orchestrators;
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send('event', { channel, payload });
@@ -86,6 +87,7 @@ function setup() {
   forwards = new ForwardManager(store, sessions);
   docker = new DockerManager(store);
   monitor = new MonitorManager(store);
+  git = new GitManager(store);
   mcp = new McpService({ store, sessions, hosts, audit });
   orchestrators = new OrchestratorManager({ store, sessions, mcp, audit, dataDir, notify: (t, b) => notify(t, b) });
 
@@ -127,7 +129,7 @@ function setup() {
   orchestrators.on('live', (m) => send('orch:live', m));
   store.on('changed', () => send('config:changed', publicConfig()));
   // Test hook: give e2e tests access to the main-process services.
-  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, docker, monitor, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
+  if (process.env.TERMCLAW_USER_DATA) global.__termclaw = { store, sessions, hosts, forwards, docker, monitor, git, audit, mcp, orchestrators, notificationLog, api: () => api, agentSetup: () => agentSetup(), targetClass: () => require('./coding-agents/target') };
 }
 
 let activeSessionId = null;
@@ -193,17 +195,54 @@ const api = {
     if (before && conn(before) !== conn(saved)) docker.reset(saved.id);
     const mconn = (x) => JSON.stringify([x.type, x.hostId, x.host, x.user, x.port, x.wslDistro, x.monitor]);
     if (before && mconn(before) !== mconn(saved)) monitor.reset(saved.id);
+    const gconn = (x) => JSON.stringify([x.type, x.hostId, x.host, x.user, x.port, x.wslDistro, x.directory, x.git]);
+    if (before && gconn(before) !== gconn(saved)) git.reset(saved.id);
     return saved;
   },
   deleteProject: (id) => {
     for (const s of sessions.list(id)) sessions.close(s.id);
     docker.reset(id);
     monitor.reset(id);
+    git.reset(id);
     store.deleteProject(id);
   },
 
   // PowerShell remoting: reachability and WinRM checks for the project editor's form values.
   psremoteTest: (project) => psremoteTest(project),
+
+  // Git tab: repositories under the project's folders; actions are audited.
+  gitRepos: (projectId, force) => git.repos(projectId, { force }),
+  gitState: (projectId, repo) => git.state(projectId, repo),
+  gitDiff: (projectId, repo, file) => git.diff(projectId, repo, file),
+  gitCommitInfo: (projectId, repo, hash) => git.commitInfo(projectId, repo, hash),
+  gitCommitDiff: (projectId, repo, hash, file) => git.commitDiff(projectId, repo, hash, file),
+  gitAction: async (projectId, repo, action, args = {}) => {
+    const p = store.getProject(projectId);
+    const run = {
+      commit: () => git.commit(projectId, repo, args),
+      push: () => git.push(projectId, repo),
+      pull: () => git.pull(projectId, repo),
+      fetch: () => git.fetch(projectId, repo),
+      discard: () => git.discard(projectId, repo, args.files),
+      checkout: () => git.checkout(projectId, repo, args),
+      createBranch: () => git.createBranch(projectId, repo, args.name),
+      deleteBranch: () => git.deleteBranch(projectId, repo, args.name, args),
+      undoCommit: () => git.undoCommit(projectId, repo),
+      revertCommit: () => git.revertCommit(projectId, repo, args.hash),
+    }[action];
+    if (!run) throw new Error('Unknown git action ' + action);
+    const detail = action === 'commit' ? `"${args.summary}" (${args.all ? 'all files' : (args.files || []).length + ' files'})`
+      : action === 'discard' ? (args.files || []).map((f) => f.path).join(', ')
+      : args.name || args.hash || '';
+    try {
+      const r = await run();
+      audit.add({ source: 'app', action: 'git.' + action, detail: `${p ? p.name : projectId}: ${repo}${detail ? ' · ' + detail : ''}` });
+      return r;
+    } catch (e) {
+      audit.add({ source: 'app', action: 'git.' + action, detail: `${p ? p.name : projectId}: ${repo}${detail ? ' · ' + detail : ''} · failed: ${e.message.split('\n')[0]}` });
+      throw e;
+    }
+  },
 
   // Monitor tab: the sampling process runs while the tab is visible.
   monitorWatch: (projectId) => monitor.watch(projectId),

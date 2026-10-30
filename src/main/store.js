@@ -56,6 +56,7 @@ const PROJECT_DEFAULTS = {
   docker: { enabled: false, command: '' }, // Docker tab; command empty = docker
   psremote: { ssl: false, port: '', auth: 'Default', skipCertCheck: false }, // type 'psremote': WinRM options
   localShell: { shell: '', directory: '' }, // extra local shell in the Session menu: powershell, pwsh, cmd, gitbash, wsl:<distro>, /bin/zsh …
+  git: { enabled: false, paths: '', depth: 3 }, // Git tab: repositories under paths (one per line; empty = start directory)
   monitor: { enabled: false }, // Monitor tab: CPU, memory, disk and network I/O, mounts, programs of a Linux machine
   tmux: true,
   autoReconnect: false,
@@ -79,6 +80,7 @@ function normalizeProject(p) {
   out.agentSetup = { ...PROJECT_DEFAULTS.agentSetup, ...(p.agentSetup || {}) };
   out.docker = { ...PROJECT_DEFAULTS.docker, ...(p.docker || {}) };
   out.monitor = { ...PROJECT_DEFAULTS.monitor, ...(p.monitor || {}) };
+  out.git = { ...PROJECT_DEFAULTS.git, ...(p.git || {}) };
   out.localShell = { ...PROJECT_DEFAULTS.localShell, ...(p.localShell || {}) };
   out.psremote = { ...PROJECT_DEFAULTS.psremote, ...(p.psremote || {}) };
   out.port = Number(out.port) || 22;

@@ -606,6 +606,67 @@ const cfgBase = () => {
     }
   }, { skip: DOCKER ? null : 'TERMCLAW_E2E_DOCKER / TERMCLAW_E2E_WSL not set' });
 
+  await step('Git tab: repositories, changes and diff, commit, push, branch, history, discard', async () => {
+    if (spawnSync('git', ['--version']).status !== 0) throw new Error('git is not installed');
+    const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'termclaw-git-'));
+    const repo = path.join(root, 'ws', 'app');
+    const remote = path.join(root, 'remote.git');
+    const g = (...a) => { const r = spawnSync('git', a, { cwd: repo, encoding: 'utf8' }); if (r.status) throw new Error(r.stderr); return r.stdout; };
+    fs.mkdirSync(repo, { recursive: true });
+    spawnSync('git', ['init', '-q', '--bare', remote]);
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 'e2e@example.com'); g('config', 'user.name', 'E2E'); g('config', 'core.autocrlf', 'false');
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'one\ntwo\n');
+    g('add', '-A'); g('commit', '-qm', 'first'); g('remote', 'add', 'origin', remote); g('push', '-q', '-u', 'origin', 'main');
+    fs.writeFileSync(path.join(repo, 'a.txt'), 'one\nTWO\n');
+    fs.writeFileSync(path.join(repo, 'b.txt'), 'new\n');
+    await app.evaluate((_e, root) => globalThis.__termclaw.api().saveProject({ id: 'p-git', name: 'git-e2e', type: 'local', tmux: false, directory: '', git: { enabled: true, paths: root, depth: 3 } }), path.join(root, 'ws'));
+    try {
+      await page.click('#sidebar .proj-name:text("git-e2e")');
+      await page.waitForSelector('.git-list .git-row', { timeout: 20000 });
+      assert.deepStrictEqual(await page.locator('#sidebar .dk-sess .sess-name').allTextContents(), ['Git']);
+      assert.deepStrictEqual(await page.locator('.git-list .git-row .git-path').allTextContents(), ['a.txt', 'b.txt']);
+      await page.waitForSelector('.git-dl-add');
+      assert.strictEqual((await page.locator('.git-dl-add .git-code').first().innerText()).trim(), '+TWO');
+      // commit only b.txt
+      await page.locator('.git-list .git-row:has-text("a.txt") input[type=checkbox]').uncheck();
+      await page.fill('.git-summary', 'Add b from e2e');
+      assert.strictEqual(await page.locator('.git-commit-btn').innerText(), 'Commit 1 file to main');
+      await page.click('.git-commit-btn');
+      await page.waitForFunction(() => document.querySelectorAll('.git-list .git-row').length === 1, null, { timeout: 15000 });
+      assert.strictEqual(g('log', '-1', '--format=%s').trim(), 'Add b from e2e');
+      // push with the toolbar button
+      await page.click('.git-toolbar .split-btn .git-tool:has-text("Push origin")');
+      await page.waitForFunction(() => /Fetch origin/.test(document.querySelector('.git-toolbar .split-btn .git-tool').innerText), null, { timeout: 30000 });
+      assert.strictEqual(spawnSync('git', ['--git-dir', remote, 'log', '-1', '--format=%s', 'main'], { encoding: 'utf8' }).stdout.trim(), 'Add b from e2e');
+      // new branch from the branch picker
+      await page.click('.git-tool:has-text("Current branch")');
+      await page.fill('.git-pop-head input', 'e2e-topic');
+      await page.click('.git-pop-head button:has-text("New branch")');
+      await page.locator('.modal').last().locator('button.primary').click();
+      await page.waitForFunction(() => /e2e-topic/.test(document.querySelector('.git-toolbar').innerText), null, { timeout: 15000 });
+      assert.strictEqual(g('rev-parse', '--abbrev-ref', 'HEAD').trim(), 'e2e-topic');
+      // history with the commit's files
+      await page.click('.git-tab:has-text("History")');
+      await page.waitForSelector('.git-commit-files .git-row');
+      assert.deepStrictEqual(await page.locator('.git-list .git-commit-subject').allTextContents(), ['Add b from e2e', 'first']);
+      assert.deepStrictEqual(await page.locator('.git-commit-files .git-row .git-path').allTextContents(), ['b.txt']);
+      // discard the remaining change
+      await page.click('.git-tab:has-text("Changes")');
+      await page.locator('.git-list .git-row').first().click({ button: 'right' });
+      await page.click('.menu div:text("Discard changes…")');
+      await page.locator('.modal').last().locator('button.primary').click();
+      await page.waitForSelector('.git-clean-title', { timeout: 15000 });
+      assert.strictEqual(fs.readFileSync(path.join(repo, 'a.txt'), 'utf8'), 'one\ntwo\n');
+      await shot('git');
+      const actions = await app.evaluate(() => globalThis.__termclaw.audit.list().map((a) => a.action));
+      for (const a of ['git.commit', 'git.push', 'git.createBranch', 'git.discard']) assert.ok(actions.includes(a), a);
+    } finally {
+      await page.click('#sidebar .proj-name:text("lokal")');
+      await app.evaluate(() => globalThis.__termclaw.api().deleteProject('p-git'));
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   // ---------------- Phase 7: MCP ----------------
   let client, token, roToken;
   const mcpUrl = `http://127.0.0.1:${MCP_PORT}/mcp`;
