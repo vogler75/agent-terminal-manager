@@ -521,6 +521,36 @@ class GitManager {
     return this._action(projectId, repo, 'Revert', [['revert', '--no-edit', hash]]);
   }
 
+  // Adds patterns to the repository's .gitignore (skips ones already there); untrack = tracked paths to remove
+  // from the index (the files stay on disk).
+  async ignore(projectId, repo, { patterns = [], untrack = [] }) {
+    const { project, host } = this._ctx(projectId);
+    const list = patterns.map((p) => String(p)).filter((p) => p && !/[\r\n]/.test(p));
+    if (!list.length) throw new Error('Nothing to ignore');
+    this._repo(repo);
+    if (localWindows(project)) {
+      const file = path.join(repo, '.gitignore');
+      let text = '';
+      try { text = fs.readFileSync(file, 'utf8'); } catch {}
+      const have = new Set(text.split(/\r?\n/));
+      const add = list.filter((p) => !have.has(p));
+      if (add.length) fs.appendFileSync(file, (text && !text.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n');
+    } else {
+      const script = [
+        `cd ${posixDir(repo)} || exit 97`,
+        'f=.gitignore',
+        'if [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ]; then echo >> "$f"; fi',
+        ...list.map((p) => `grep -qxF -- ${shq(p)} "$f" 2>/dev/null || printf '%s\\n' ${shq(p)} >> "$f"`),
+      ].join('\n');
+      const r = await runSpec(buildRemoteExec(project, host, posixSh(script)), { timeout: 30000 });
+      if (r.code === 97) throw new Error(`Repository folder not found: ${repo}`);
+      if (r.code !== 0) throw new Error((r.err || '').trim() || `Could not write .gitignore (exit ${r.code})`);
+    }
+    if (untrack.length) return this._action(projectId, repo, 'Untrack', [['rm', '--cached', '-q', '-r', '--', ...untrack]]);
+    this.scans.delete(projectId);
+    return { ok: true, output: '' };
+  }
+
   reset(projectId) { this.scans.delete(projectId); }
 }
 

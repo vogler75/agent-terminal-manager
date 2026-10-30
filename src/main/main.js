@@ -229,10 +229,12 @@ const api = {
       deleteBranch: () => git.deleteBranch(projectId, repo, args.name, args),
       undoCommit: () => git.undoCommit(projectId, repo),
       revertCommit: () => git.revertCommit(projectId, repo, args.hash),
+      ignore: () => git.ignore(projectId, repo, args),
     }[action];
     if (!run) throw new Error('Unknown git action ' + action);
     const detail = action === 'commit' ? `"${args.summary}" (${args.all ? 'all files' : (args.files || []).length + ' files'})`
       : action === 'discard' ? (args.files || []).map((f) => f.path).join(', ')
+      : action === 'ignore' ? (args.patterns || []).join(', ') + ((args.untrack || []).length ? ` (untracked ${args.untrack.length})` : '')
       : args.name || args.hash || '';
     try {
       const r = await run();

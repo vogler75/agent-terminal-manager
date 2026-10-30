@@ -41,12 +41,28 @@ export const project = (id) => S.config.projects.find((p) => p.id === id);
 export const projectSessions = (pid) => [...S.sessions.values()].filter((s) => s.projectId === pid);
 const mode = (p) => (p && p.layout && p.layout.mode) || 'tabs';
 // Extra tabs of a project, before its sessions. Each module has mount(ctx, el, projectId) and unmount().
-const GIT_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#f05133" stroke-width="1.7" stroke-linecap="round"><circle cx="4.5" cy="3.2" r="1.7"/><circle cx="4.5" cy="12.8" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 4.9v6.2M11.5 6.9c0 3.2-7 2.2-7 4.2"/></svg>';
+const GIT_SVG = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="4.5" cy="3.2" r="1.7"/><circle cx="4.5" cy="12.8" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 4.9v6.2M11.5 6.9c0 3.2-7 2.2-7 4.2"/></svg>';
 const EXTRAS = [
   { key: 'docker', label: 'Docker', glyph: () => '🐳', title: 'Docker containers, images and volumes', on: (p) => !!(p.docker && p.docker.enabled), mod: docker },
   { key: 'monitor', label: 'Monitor', glyph: () => '📈', title: 'CPU, memory, disk and network I/O, mounts and programs of the machine', on: (p) => !!(p.monitor && p.monitor.enabled), mod: monitor },
-  { key: 'git', label: 'Git', glyph: () => h('span', { class: 'git-glyph', html: GIT_SVG }), title: 'Git repositories: changes, commit, push and pull, branches, history', on: (p) => !!(p.git && p.git.enabled), mod: git },
+  { key: 'git', label: 'Git', glyph: (p) => h('span', { class: 'git-glyph' + (gitClean.get(p.id) === true ? ' clean' : ''), 'data-git-glyph': p.id, title: gitTitle(p.id), html: GIT_SVG }), title: 'Git repositories: changes, commit, push and pull, branches, history', on: (p) => !!(p.git && p.git.enabled), mod: git },
 ];
+// Git icon: green when every repository of the project is clean, orange when there are changes (or unknown yet).
+const gitClean = new Map(); // projectId -> true | false
+const gitTitle = (pid) => (gitClean.get(pid) === true ? 'Git: no local changes' : gitClean.get(pid) === false ? 'Git: uncommitted changes' : 'Git');
+function setGitClean(pid, clean) {
+  if (gitClean.get(pid) === clean) return;
+  gitClean.set(pid, clean);
+  document.querySelectorAll(`[data-git-glyph="${CSS.escape(pid)}"]`).forEach((el) => { el.classList.toggle('clean', clean === true); el.title = gitTitle(pid); });
+}
+git.onSummary(setGitClean);
+// In the background (the Git tab reports its own updates): one cached repository search per project and minute.
+async function pollGitSummaries() {
+  for (const p of S.config.projects) {
+    if (!(p.git && p.git.enabled) || git.mountedProject() === p.id) continue;
+    try { const r = await call('gitRepos', p.id, false); setGitClean(p.id, git.isClean(r.repos)); } catch { gitClean.delete(p.id); }
+  }
+}
 const extrasOn = (p) => (p ? EXTRAS.filter((x) => x.on(p)) : []);
 // The extra tab that is shown: the chosen one, or the first one when the project has no session.
 function activeExtra(p) {
@@ -192,7 +208,7 @@ function renderSidebar() {
       const ax = selected ? activeExtra(p) : null;
       for (const x of extrasOn(p)) {
         node.appendChild(h('div', { class: 'sess dk-sess' + (ax === x ? ' active' : ''), title: x.title, onclick: () => showExtra(p.id, x.key) },
-          h('span', { class: 'dk-sess-icon' }, x.glyph()), h('span', { class: 'sess-name' }, x.label)));
+          h('span', { class: 'dk-sess-icon' }, x.glyph(p)), h('span', { class: 'sess-name' }, x.label)));
       }
       for (const s of list) {
         const isActive = selected && activeSessionId(p.id) === s.id;
@@ -447,7 +463,7 @@ function renderProject(main) {
 
   const aid = ax ? null : activeSessionId(p.id);
   main.appendChild(h('div', { class: 'tabs' },
-    extrasOn(p).map((x) => h('div', { class: 'tab dk-tab' + (ax === x ? ' active' : ''), title: x.title, onclick: () => showExtra(p.id, x.key) }, h('span', { style: { fontSize: '12px' } }, x.glyph()), x.label)),
+    extrasOn(p).map((x) => h('div', { class: 'tab dk-tab' + (ax === x ? ' active' : ''), title: x.title, onclick: () => showExtra(p.id, x.key) }, h('span', { style: { fontSize: '12px' } }, x.glyph(p)), x.label)),
     list.map((s) => h('div', {
     class: 'tab' + (s.id === aid ? ' active' : ''),
     onclick: () => selectSession(s.id),
@@ -723,6 +739,8 @@ export const ctx = { S, call, render, renderSoon, showView, openSession, selectS
   S.config = st.config;
   S.platform = st.platform;
   call('localShells').then((l) => { S.localShells = l; }).catch(() => {});
+  setTimeout(pollGitSummaries, 2000);
+  setInterval(pollGitSummaries, 60000);
   S.hosts = st.hosts;
   S.forwards = st.forwards;
   S.mcp = st.mcp;

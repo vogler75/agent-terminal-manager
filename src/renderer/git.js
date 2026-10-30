@@ -10,6 +10,13 @@ const MAX_LINES = 6000;
 
 const projects = new Map(); // projectId -> per-project view state (kept while switching tabs)
 let mounted = null; // { ctx, projectId, root, els, timer }
+let summaryListener = null;
+
+// The project's repositories are clean (true), have changes (false) or none were found (null).
+export const isClean = (repos) => (repos && repos.length ? repos.every((r) => !r.changes) : null);
+export function onSummary(fn) { summaryListener = fn; }
+export const mountedProject = () => (mounted ? mounted.projectId : null);
+const report = (projectId, d) => { if (summaryListener && d.repos) summaryListener(projectId, isClean(d.repos)); };
 
 function pstate(projectId) {
   let d = projects.get(projectId);
@@ -70,6 +77,7 @@ async function scan(force) {
     d.repos = r.repos;
     d.roots = r.roots;
     if (!d.repo || !r.repos.some((x) => x.path === d.repo)) d.repo = r.repos.length ? (r.repos.find((x) => x.changes) || r.repos[0]).path : null;
+    report(pid, d);
   } catch (e) {
     d.scanErr = e.message;
   }
@@ -92,6 +100,7 @@ async function refresh({ silent = false } = {}) {
     // keep the summary in the repository list current
     const r = d.repos && d.repos.find((x) => x.path === repo);
     if (r) Object.assign(r, { head: st.branch.head, ahead: st.branch.ahead, behind: st.branch.behind, changes: st.files.length });
+    report(pid, d);
     if (d.selFile && !st.files.some((f) => f.path === d.selFile)) { d.selFile = null; d.diff = null; }
     if (!d.selFile && st.files.length) d.selFile = st.files[0].path;
     if (d.tab === 'changes' && d.selFile) loadDiff();
@@ -471,14 +480,36 @@ function fileMenu(e, f, st) {
   const checked = st.files.filter((x) => !unchecked(d).has(x.path));
   const s = sep(d.repo);
   const full = d.repo.replace(/[\\/]+$/, '') + s + (s === '\\' ? f.path.replace(/\//g, '\\') : f.path);
+  const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+  const ext = /\.([^./]+)$/.exec(f.path.split('/').pop());
   contextMenu(e.clientX, e.clientY, [
     { label: 'Discard changes…', action: () => discard([f]) },
     ...(checked.length > 1 ? [{ label: `Discard ${checked.length} selected changes…`, action: () => discard(checked) }] : []),
+    '-',
+    { label: 'Add to .gitignore', action: () => ignore(f, ignorePattern('/' + f.path)) },
+    ...(ext ? [{ label: `Add all *.${ext[1]} files to .gitignore`, action: () => ignore(f, '*.' + ignorePattern(ext[1]), (x) => x.path.endsWith('.' + ext[1])) }] : []),
+    ...(dir ? [{ label: `Add folder ${dir}/ to .gitignore`, action: () => ignore(f, ignorePattern('/' + dir) + '/', (x) => x.path.startsWith(dir + '/')) }] : []),
     '-',
     { label: 'Copy file path', action: () => navigator.clipboard.writeText(full) },
     { label: 'Copy relative path', action: () => navigator.clipboard.writeText(f.path) },
     { label: 'Show in file browser', action: () => files.openBrowser(mounted.ctx, mounted.projectId, full.slice(0, full.lastIndexOf(s)) || d.repo) },
   ]);
+}
+
+// .gitignore pattern for a literal name: escape what gitignore treats specially.
+function ignorePattern(p) {
+  return p.replace(/[\\*?[\]]/g, (c) => '\\' + c).replace(/^([#!])/, '\\$1').replace(/^\/([#!])/, '/\\$1').replace(/ +$/, (sp) => sp.replace(/ /g, '\\ '));
+}
+
+// Appends a pattern to the repository's .gitignore. Tracked files that match stay in git unless they are
+// removed from the index, so those are untracked (kept on disk) after asking.
+async function ignore(f, pattern, matches = (x) => x.path === f.path) {
+  const d = cur();
+  const tracked = d.state.files.filter((x) => matches(x) && x.x !== '?');
+  if (tracked.length && !(await confirmDialog('Add to .gitignore', h('div', null,
+    h('p', null, h('span', { class: 'mono' }, pattern), ' is added to .gitignore.'),
+    h('p', null, `${tracked.length === 1 ? `“${tracked[0].path}” is tracked by git` : `${tracked.length} matching files are tracked by git`}: ${tracked.length === 1 ? 'it is removed from the repository with the next commit and stays' : 'they are removed from the repository with the next commit and stay'} on disk.`)), 'Add and untrack'))) return;
+  act('ignore', { patterns: [pattern], untrack: tracked.map((x) => x.path) }, 'Add to .gitignore');
 }
 
 async function discard(list) {

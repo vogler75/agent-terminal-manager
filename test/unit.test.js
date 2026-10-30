@@ -307,6 +307,12 @@ test('git: actions run in a real repository (local git)', async (t) => {
   await mgr.undoCommit('p', real); // no upstream: the commit is local
   st = await mgr.state('p', real);
   assert.deepStrictEqual(st.files.map((f) => f.path + ':' + f.staged), ['b.txt:true']);
+  fs.writeFileSync(path.join(repo, 'x.log'), 'l');
+  await mgr.ignore('p', real, { patterns: ['*.log', '/b.txt'], untrack: ['b.txt'] });
+  await mgr.ignore('p', real, { patterns: ['*.log'] }); // not added twice
+  assert.strictEqual(fs.readFileSync(path.join(repo, '.gitignore'), 'utf8'), '*.log\n/b.txt\n');
+  st = await mgr.state('p', real);
+  assert.deepStrictEqual(st.files.map((f) => f.path + ':' + f.status).sort(), ['.gitignore:new']);
   await assert.rejects(mgr.push('p', real), /no remote/);
   await assert.rejects(mgr.createBranch('p', real, '--force'), /Invalid branch/);
   fs.rmSync(root, { recursive: true, force: true });
