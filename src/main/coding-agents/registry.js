@@ -105,7 +105,7 @@ const copilot = jsonAgent({
   name: 'GitHub Copilot CLI',
   bin: 'copilot',
   homepage: 'https://github.com/github/copilot-cli',
-  install: { posix: 'curl -fsSL https://gh.io/copilot-install | bash', powershell: 'winget install GitHub.Copilot' },
+  install: { posix: 'curl -fsSL https://gh.io/copilot-install | bash', powershell: 'winget install --id GitHub.Copilot --exact --accept-source-agreements --accept-package-agreements --disable-interactivity' },
   files: { user: home('.copilot/mcp-config.json') },
   skills: { project: proj('.github/skills'), user: home('.copilot/skills') },
   key: 'mcpServers',

@@ -130,7 +130,7 @@ How it works: TermClaw runs the git command on the project machine — several c
 
 ## Windows machines over SSH
 
-Windows 10 / 11 and Windows Server include an OpenSSH server. Choose **SSH** as the connection type and **Remote system: Windows**; sessions then open a PowerShell on the machine in a real terminal, so console programs and coding agents work. The start directory is a Windows path (`C:\Projects\app`) or `~\src` under the user's profile, and a start command runs in that PowerShell. tmux, Docker, Monitor, Git, the file browser and agent sessions need Linux or macOS and are not offered for these projects.
+Windows 10 / 11 and Windows Server include an OpenSSH server. Choose **SSH** as the connection type and **Remote system: Windows**; sessions then open a PowerShell on the machine in a real terminal, so console programs and coding agents work. The start directory is a Windows path (`C:\Projects\app`) or `~\src` under the user's profile, and a start command runs in that PowerShell. Coding agents are installed and configured there with the Windows (PowerShell) installers, like for local Windows projects. tmux, Docker, Monitor, Git, the file browser and agent sessions need Linux or macOS and are not offered for these projects.
 
 **ⓘ Windows SSH server setup** in the project editor shows the steps. In short, on the Windows machine in PowerShell as administrator:
 

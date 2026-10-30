@@ -215,7 +215,7 @@ export async function editProject(ctx, p) {
     h('div', { class: 'full' }, cmds.el),
     grp(sshOnly, h('h3', { class: 'full' }, 'Port forwarding (local port → remote port)')),
     grp(sshOnly, h('div', { class: 'full' }, fwds.el)),
-    grp(posixOnly, ...agentSection.elements));
+    ...agentSection.elements);
 
   const sync = () => {
     const t = type.value;
@@ -224,7 +224,7 @@ export async function editProject(ctx, p) {
     const win = t === 'ssh' && remoteOs.value === 'windows';
     hostUserOnly.forEach((e) => (e.style.display = t === 'ssh' && !hostSel.value ? '' : 'none'));
     posixOnly.forEach((e) => (e.style.display = win ? 'none' : ''));
-    remoteHint.textContent = win ? 'Sessions open a PowerShell on the machine (works with cmd or PowerShell as the server’s default shell). tmux, Docker, Monitor, Git, the file browser and agent sessions need Linux or macOS and are hidden.' : '';
+    remoteHint.textContent = win ? 'Sessions open a PowerShell on the machine (works with cmd or PowerShell as the server’s default shell). Coding agents are installed with the Windows installers. tmux, Docker, Monitor, Git, the file browser and agent sessions need Linux or macOS and are hidden.' : '';
     wslOnly.forEach((e) => (e.style.display = t === 'wsl' || (t === 'ssh' && x11.value === 'wsl') ? '' : 'none'));
     x11Only.forEach((e) => (e.style.display = t === 'ssh' && !win ? '' : 'none'));
     displayOnly.forEach((e) => (e.style.display = t === 'ssh' && !win && x11.value === 'display' ? '' : 'none'));

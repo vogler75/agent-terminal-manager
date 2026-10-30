@@ -43,3 +43,29 @@ test('windows ssh: the encoded command runs from cmd.exe as the default shell (W
   const r = spawnSync('cmd.exe', ['/d', '/c', spec.args[2].replace(' -NoExit', '')], { encoding: 'utf8', timeout: 30000 });
   assert.match(r.stdout, /sid=s9/);
 });
+
+test('windows ssh: coding agent setup uses the PowerShell target over ssh', () => {
+  const { Target } = require('../src/main/coding-agents/target');
+  const t = new Target(win, null);
+  assert.strictEqual(t.kind, 'powershell');
+  const spec = t.spawnSpec();
+  assert.deepStrictEqual(spec.args.slice(0, 5), ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'bob@win1']);
+  assert.match(spec.args[5], /^powershell\.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand [A-Za-z0-9+/=]+$/);
+  assert.strictEqual(t.pathExpr({ base: 'project', rel: '.vscode/mcp.json' }), "(Join-Path (Join-Path $HOME 'src/app') '.vscode\\mcp.json')");
+  assert.strictEqual(t.pathExpr({ base: 'home', rel: '.copilot/mcp-config.json' }), "(Join-Path $HOME '.copilot\\mcp-config.json')");
+  const abs = new Target({ ...win, directory: 'C:\\Projects\\x' }, null);
+  assert.strictEqual(abs.pathExpr({ base: 'project', rel: 'a/b' }), "(Join-Path 'C:\\Projects\\x' 'a\\b')");
+});
+
+test('windows ssh: the setup script arrives on stdin when cmd.exe runs the remote command (Windows only)', (t) => {
+  if (process.platform !== 'win32') return t.skip('needs Windows');
+  const { Target, parseSections } = require('../src/main/coding-agents/target');
+  const target = new Target(win, null);
+  const remoteCommand = target.spawnSpec().args.slice(-1)[0];
+  const script = [target.preamble(), target.detectSnippet('ps', 'powershell', '-NoProfile -Command $PSVersionTable.PSVersion.Major'), target.commandSnippet('hi', 'Write-Output hello')].join('\n');
+  // what sshd does: run the command line through the default shell, with the connection on stdin
+  const r = spawnSync('cmd.exe', ['/d', '/c', remoteCommand], { input: script, encoding: 'utf8', timeout: 60000 });
+  const s = parseSections(r.stdout);
+  assert.strictEqual(s.detect.ps.installed, true, r.stdout + r.stderr);
+  assert.deepStrictEqual(s.cmd.hi, { ok: true, output: 'hello' });
+});

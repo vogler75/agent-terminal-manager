@@ -1,10 +1,11 @@
 'use strict';
 // Execution target for agent setup: runs a script on the project's machine and builds file paths.
-// "posix" = sh/bash on Linux/macOS (local, SSH or WSL), "powershell" = local Windows project.
+// "posix" = sh/bash on Linux/macOS (local, SSH or WSL), "powershell" = a local Windows project or a Windows
+// machine over SSH (OpenSSH server).
 // Scripts are passed via stdin, so there are no quoting or command-line length issues.
 const { spawn } = require('child_process');
 const os = require('os');
-const { resolveTarget, sshBaseArgs, sshDest, projectDir, SSH_BIN } = require('../connect');
+const { resolveTarget, sshBaseArgs, sshDest, projectDir, SSH_BIN, windowsTarget } = require('../connect');
 
 const IS_WIN = process.platform === 'win32';
 
@@ -19,12 +20,14 @@ const PS_BOOTSTRAP = '[Console]::OutputEncoding=[Text.Encoding]::UTF8; $s=[Conso
 
 class Target {
   constructor(project, host) {
-    if (project.type === 'ssh' && project.remoteOs === 'windows') throw new Error('Coding agent setup is not available for Windows machines over SSH yet.');
     this.project = project;
     this.host = host;
-    this.kind = project.type === 'local' && IS_WIN ? 'powershell' : 'posix';
+    this.remoteWindows = windowsTarget(project);
+    this.kind = (project.type === 'local' && IS_WIN) || this.remoteWindows ? 'powershell' : 'posix';
     const dir = projectDir(project, host);
-    if (this.kind === 'powershell') this.dir = dir ? dir.replace(/^~(?=$|[\\/])/, os.homedir()) : os.homedir();
+    // On a remote Windows machine ~ stays: it is resolved to $HOME there (see pathExpr).
+    if (this.remoteWindows) this.dir = dir || '~';
+    else if (this.kind === 'powershell') this.dir = dir ? dir.replace(/^~(?=$|[\\/])/, os.homedir()) : os.homedir();
     else if (project.type === 'local') this.dir = dir ? dir.replace(/^~(?=$|\/)/, os.homedir()) : os.homedir();
     else this.dir = dir || '~';
   }
@@ -33,7 +36,11 @@ class Target {
     const p = this.project;
     if (this.kind === 'powershell') {
       const enc = Buffer.from(PS_BOOTSTRAP, 'utf16le').toString('base64');
-      return { file: 'powershell.exe', args: ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc] };
+      const args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc];
+      if (!this.remoteWindows) return { file: 'powershell.exe', args };
+      // Windows OpenSSH runs the command through cmd.exe or PowerShell; the encoded form needs no quoting.
+      const t = resolveTarget(p, this.host);
+      return { file: SSH_BIN, args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', ...sshBaseArgs({ ...p, keepAlive: false }, t), sshDest(t), ['powershell.exe', ...args].join(' ')] };
     }
     if (p.type === 'ssh') {
       const t = resolveTarget(p, this.host);
@@ -67,7 +74,9 @@ class Target {
   pathExpr(loc) {
     const rel = loc.rel.replace(/^\/+/, '');
     if (this.kind === 'powershell') {
-      const base = loc.base === 'home' ? '$HOME' : psq(this.dir);
+      const home = /^~(?:[\\/](.*))?$/.exec(this.dir);
+      const projectBase = home ? (home[1] ? `(Join-Path $HOME ${psq(home[1])})` : '$HOME') : psq(this.dir);
+      const base = loc.base === 'home' ? '$HOME' : projectBase;
       return `(Join-Path ${base} ${psq(rel.replace(/\//g, '\\'))})`;
     }
     if (loc.base === 'home') return `"$HOME/${dq(rel)}"`;
