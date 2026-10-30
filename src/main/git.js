@@ -6,7 +6,7 @@ const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { buildRemoteExec, shq, posixDir, projectDir } = require('./connect');
+const { buildRemoteExec, shq, posixDir, projectDir, windowsTarget, windowsOnlyTerminal } = require('./connect');
 
 const IS_WIN = process.platform === 'win32';
 const MARK = '@@TCG';
@@ -24,7 +24,7 @@ const US = '\x1f';
 const RS = '\x1e';
 
 function checkProject(project) {
-  if (project.type === 'psremote') throw new Error('The Git tab needs an SSH, WSL or local project.');
+  if (windowsTarget(project)) throw new Error(windowsOnlyTerminal('The Git tab'));
 }
 
 function badRef(name) {

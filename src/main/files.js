@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { buildRemoteExec, shq, posixDir, projectDir } = require('./connect');
+const { buildRemoteExec, shq, posixDir, projectDir, windowsTarget, windowsOnlyTerminal } = require('./connect');
 
 const IS_WIN = process.platform === 'win32';
 const LOCAL_TAR = IS_WIN ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
@@ -245,7 +245,7 @@ class LocalFiles {
 }
 
 function filesFor(project, host) {
-  if (project.type === 'psremote') throw new Error('The file browser is not available for PowerShell remoting projects (use an SSH project).');
+  if (windowsTarget(project)) throw new Error(windowsOnlyTerminal('The file browser'));
   return project.type === 'ssh' || project.type === 'wsl' ? new RemoteFiles(project, host) : new LocalFiles(project, host);
 }
 

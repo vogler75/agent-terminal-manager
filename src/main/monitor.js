@@ -5,7 +5,7 @@
 // computed here from two consecutive samples. Polling runs while the Monitor tab is visible.
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const { buildRemoteExec, shq } = require('./connect');
+const { buildRemoteExec, shq, windowsTarget } = require('./connect');
 
 const SAMPLE_SEC = 2;
 const IDLE_STOP_MS = 15000; // stop the remote loop this long after the tab was left
@@ -252,7 +252,7 @@ function monitorSpec(project, host) {
 }
 
 function unsupported(project) {
-  if (project.type === 'psremote') return 'The monitor needs a Linux machine; PowerShell remoting connects to Windows.';
+  if (windowsTarget(project)) return 'The monitor needs a Linux machine; this project connects to Windows.';
   if (project.type === 'local' && process.platform !== 'linux') return 'The monitor needs a Linux machine: an SSH host, a WSL distribution or a project on this computer when it runs Linux.';
   return null;
 }

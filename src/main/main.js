@@ -12,7 +12,6 @@ const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
 const { MonitorManager } = require('./monitor');
 const { GitManager } = require('./git');
 const { detectLocalShells } = require('./connect');
-const { testConnection: psremoteTest } = require('./psremote');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
 const { OrchestratorManager } = require('./orchestrators');
@@ -208,8 +207,6 @@ const api = {
     store.deleteProject(id);
   },
 
-  // PowerShell remoting: reachability and WinRM checks for the project editor's form values.
-  psremoteTest: (project) => psremoteTest(project),
 
   // Git tab: repositories under the project's folders; actions are audited.
   gitRepos: (projectId, force) => git.repos(projectId, { force }),

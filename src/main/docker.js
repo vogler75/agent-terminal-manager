@@ -7,7 +7,7 @@ const http = require('http');
 const { spawn } = require('child_process');
 const { Duplex } = require('stream');
 const { EventEmitter } = require('events');
-const { resolveTarget, sshBaseArgs, sshDest, SSH_BIN, buildRemoteExec, shq } = require('./connect');
+const { resolveTarget, sshBaseArgs, sshDest, SSH_BIN, buildRemoteExec, shq, windowsTarget, windowsOnlyTerminal } = require('./connect');
 
 const FAST_MS = 3000; // container list and stats
 const SLOW_MS = 60000; // engine info, disk usage (system df), host memory/disk
@@ -17,7 +17,7 @@ const dockerCli = (project) => ((project.docker && project.docker.command) || 'd
 
 // Process that connects its stdin/stdout to the Docker Engine API of the project machine.
 function dialSpec(project, host) {
-  if (project.type === 'psremote') throw new Error('Docker is not available for PowerShell remoting projects.');
+  if (windowsTarget(project)) throw new Error(windowsOnlyTerminal('The Docker tab'));
   const cli = dockerCli(project);
   if (project.type === 'ssh') {
     const t = resolveTarget(project, host);

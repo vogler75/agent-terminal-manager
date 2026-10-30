@@ -54,7 +54,7 @@ const PROJECT_DEFAULTS = {
   x11: 'off', // ssh X11 forwarding: off | wsl | display
   x11Display: '', // for 'display'; empty = DISPLAY of the app, on Windows localhost:0.0
   docker: { enabled: false, command: '' }, // Docker tab; command empty = docker
-  psremote: { ssl: false, port: '', auth: 'Default', skipCertCheck: false }, // type 'psremote': WinRM options
+  remoteOs: 'posix', // ssh: posix (Linux, macOS) | windows (OpenSSH server on Windows)
   localShell: { shell: '', directory: '' }, // extra local shell in the Session menu: powershell, pwsh, cmd, gitbash, wsl:<distro>, /bin/zsh …
   git: { enabled: false, paths: '', depth: 3 }, // Git tab: repositories under paths (one per line; empty = start directory)
   monitor: { enabled: false }, // Monitor tab: CPU, memory, disk and network I/O, mounts, programs of a Linux machine
@@ -82,8 +82,11 @@ function normalizeProject(p) {
   out.monitor = { ...PROJECT_DEFAULTS.monitor, ...(p.monitor || {}) };
   out.git = { ...PROJECT_DEFAULTS.git, ...(p.git || {}) };
   out.localShell = { ...PROJECT_DEFAULTS.localShell, ...(p.localShell || {}) };
-  out.psremote = { ...PROJECT_DEFAULTS.psremote, ...(p.psremote || {}) };
+  // The former PowerShell remoting (WinRM) type becomes SSH to the same Windows machine.
+  if (out.type === 'psremote') Object.assign(out, { type: 'ssh', remoteOs: 'windows', port: 22, tmux: false });
+  delete out.psremote;
   out.port = Number(out.port) || 22;
+  if (out.remoteOs !== 'windows') out.remoteOs = 'posix';
   return out;
 }
 

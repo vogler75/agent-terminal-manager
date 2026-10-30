@@ -350,16 +350,10 @@ td.dk-created { white-space: nowrap; }
 .mon-table th, .mon-table td { padding-right: 14px; }
 .mon-table th.num { padding-right: 14px; }
 
-/* PowerShell remoting (project editor) */
-.ps-result { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
-.ps-step.ok { color: var(--green); }
-.ps-step.warn { color: var(--amber); }
-.ps-step.bad { color: var(--red); }
-.ps-hints { margin: 4px 0 0; padding-left: 18px; color: var(--fg2); }
-.ps-hints li { margin-bottom: 3px; }
-.ps-help h4 { margin: 14px 0 4px; }
-.ps-help p { margin: 4px 0; color: var(--fg2); }
-.ps-code { margin: 4px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+/* setup help dialogs (project editor) */
+.setup-help h4 { margin: 14px 0 4px; }
+.setup-help p { margin: 4px 0; color: var(--fg2); }
+.setup-code { margin: 4px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .split-btn { display: inline-flex; }
 .split-btn > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .split-btn > button:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding: 4px 6px; }

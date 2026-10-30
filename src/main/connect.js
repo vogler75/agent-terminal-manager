@@ -83,50 +83,26 @@ function x11Mode(project) {
   return ['wsl', 'display'].includes(m) ? m : 'off';
 }
 
-// PowerShell remoting (WinRM) to a Windows machine: the session runs a local powershell.exe that connects with
-// New-PSSession / Enter-PSSession. No password is stored: with a user name the password is asked in the terminal,
-// without one the current Windows account is used (Kerberos / NTLM).
+// SSH to a Windows machine (OpenSSH server): its default shell is cmd.exe or PowerShell, so the session starts
+// PowerShell with an encoded script (no quoting differences between the two) instead of the POSIX scripts.
+const windowsTarget = (project) => project.type === 'ssh' && project.remoteOs === 'windows';
 const psq = (s) => "'" + String(s).replace(/'/g, "''") + "'";
-const PS_AUTH = ['Default', 'Negotiate', 'Kerberos'];
 
-function psPort(project) {
-  const c = project.psremote || {};
-  return Number(c.port) || (c.ssl ? 5986 : 5985);
+function windowsSessionCommand(dir, sid, command) {
+  const lines = [];
+  if (sid) lines.push(`$env:TERMCLAW_SID = ${psq(sid)}`);
+  if (dir) {
+    const home = /^~(?:[\\/](.*))?$/.exec(dir); // ~ and ~/x are relative to the user's profile folder
+    const target = home ? (home[1] ? `(Join-Path $HOME ${psq(home[1])})` : '$HOME') : psq(dir);
+    lines.push(`Set-Location -LiteralPath ${target} -ErrorAction Continue`);
+  }
+  if (command) lines.push(command);
+  const enc = Buffer.from(lines.join('\n') || ' ', 'utf16le').toString('base64');
+  return `powershell.exe -NoLogo -NoExit -EncodedCommand ${enc}`;
 }
 
-function psremoteScript(project, session = {}) {
-  const c = project.psremote || {};
-  const hostName = project.host;
-  if (!hostName) throw new Error('No host configured for this project');
-  const auth = PS_AUTH.includes(c.auth) ? c.auth : 'Default';
-  const dir = projectDir(project, null);
-  const lines = ["$ErrorActionPreference = 'Stop'", `$h = ${psq(hostName)}`];
-  if (project.user) {
-    lines.push(`$u = ${psq(project.user)}`,
-      'Write-Host "[termclaw] Connecting to $h as $u"',
-      '$pw = Read-Host -AsSecureString "Password for $u"',
-      '$cred = New-Object System.Management.Automation.PSCredential($u, $pw)');
-  } else {
-    lines.push('Write-Host "[termclaw] Connecting to $h with the current Windows account"');
-  }
-  const opt = ['-OpenTimeout 20000'];
-  if (c.skipCertCheck) opt.push('-SkipCACheck', '-SkipCNCheck', '-SkipRevocationCheck');
-  lines.push(`$so = New-PSSessionOption ${opt.join(' ')}`);
-  lines.push('try {',
-    `  $s = New-PSSession -ComputerName $h -Port ${psPort(project)}${c.ssl ? ' -UseSSL' : ''} -Authentication ${auth}${project.user ? ' -Credential $cred' : ''} -SessionOption $so`);
-  if (dir) lines.push(`  Invoke-Command -Session $s -ScriptBlock { param($d) Set-Location -LiteralPath $d } -ArgumentList ${psq(dir)}`);
-  if (session.command) lines.push(`  Invoke-Command -Session $s -ScriptBlock { ${session.command} }`);
-  lines.push('  Enter-PSSession -Session $s',
-    '  Remove-PSSession $s',
-    '  exit',
-    '} catch {',
-    '  Write-Host ""',
-    '  Write-Host "[termclaw] Could not connect to ${h}: $($_.Exception.Message)" -ForegroundColor Red',
-    '  Write-Host "On the remote machine (as administrator): Enable-PSRemoting -Force" -ForegroundColor Yellow',
-    '  Write-Host "On this machine, if the remote machine is not in your domain (as administrator): Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value $h -Concatenate -Force" -ForegroundColor Yellow',
-    '  Write-Host "More hints: project editor, PowerShell remoting, Setup help." -ForegroundColor Yellow',
-    '}');
-  return lines.join('\n');
+function windowsOnlyTerminal(what) {
+  return `${what} is not available for Windows machines (it needs a Linux or macOS shell on the machine).`;
 }
 
 function projectDir(project, host) {
@@ -231,9 +207,11 @@ function buildSpawn(project, host, session) {
 
   if (project.type === 'ssh') {
     const target = resolveTarget(project, host);
-    const script = useTmux ? tmuxScript(name, dir, command) : plainScript(dir, session.id);
+    const win = windowsTarget(project); // no tmux on Windows; the start command runs in the PowerShell
+    const tmuxOn = useTmux && !win;
+    const script = win ? windowsSessionCommand(dir, session.id, command) : tmuxOn ? tmuxScript(name, dir, command) : plainScript(dir, session.id);
     const sshArgs = ['-t', ...sshBaseArgs(project, target), sshDest(target), script];
-    const spec = { file: SSH_BIN, args: sshArgs, cwd: os.homedir(), postStart: !useTmux && command ? command : '', tmuxName: useTmux ? name : null };
+    const spec = { file: SSH_BIN, args: sshArgs, cwd: os.homedir(), postStart: !tmuxOn && !win && command ? command : '', tmuxName: tmuxOn ? name : null };
     const x11 = x11Mode(project);
     if (x11 === 'wsl') {
       // WSLg's X server is only reachable inside WSL, so the ssh client of the distribution runs the session.
@@ -245,12 +223,6 @@ function buildSpawn(project, host, session) {
       if (display) spec.env = { DISPLAY: display };
     }
     return spec;
-  }
-
-  if (project.type === 'psremote') {
-    if (!IS_WIN) throw new Error('PowerShell remoting (WinRM) needs the Windows version of TermClaw. Use an SSH project (OpenSSH on the Windows machine) from here.');
-    const enc = Buffer.from(psremoteScript(project, { command }), 'utf16le').toString('base64');
-    return { file: 'powershell.exe', args: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc], cwd: os.homedir(), postStart: '', tmuxName: null };
   }
 
   if (project.type === 'wsl') {
@@ -275,7 +247,7 @@ function buildSpawn(project, host, session) {
 
 // Command used to kill a tmux session on the target when the user closes a session for good.
 function buildTmuxKill(project, host, name) {
-  if (project.type === 'psremote') return null;
+  if (windowsTarget(project)) return null;
   const script = `tmux kill-session -t ${shq('=' + name)} 2>/dev/null; true`;
   if (project.type === 'ssh') {
     const target = resolveTarget(project, host);
@@ -303,7 +275,7 @@ function buildForwardArgs(project, host) {
 
 // Run one command on the target and capture its output (used by MCP create_directory, host checks).
 function buildRemoteExec(project, host, script) {
-  if (project.type === 'psremote') throw new Error('This feature is not available for PowerShell remoting projects (use an SSH project).');
+  if (windowsTarget(project)) throw new Error(windowsOnlyTerminal('This feature'));
   if (project.type === 'ssh' || (!project.type && host)) {
     const target = resolveTarget(project, host);
     return { file: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', ...sshBaseArgs(project, target), sshDest(target), script] };
@@ -317,7 +289,7 @@ function buildRemoteExec(project, host, script) {
 }
 
 module.exports = {
-  SSH_BIN, psremoteScript, psPort, psq, buildSpawn, buildTmuxKill, buildForwardArgs, buildRemoteExec,
+  SSH_BIN, windowsTarget, windowsOnlyTerminal, windowsSessionCommand, psq, buildSpawn, buildTmuxKill, buildForwardArgs, buildRemoteExec,
   tmuxName, tmuxScript, shq, posixDir, resolveTarget, sshBaseArgs, sshDest, projectDir, x11Mode,
   buildLocalShell, localShellLabel, localShellName, findGitBash, detectLocalShells,
 };

@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { buildSpawn, buildTmuxKill, localShellName, localShellLabel } = require('./connect');
+const { buildSpawn, buildTmuxKill, localShellName, localShellLabel, windowsTarget } = require('./connect');
 
 let pty = null;
 function getPty() {
@@ -348,7 +348,7 @@ class SessionManager extends EventEmitter {
     if (!project) throw new Error('Unknown project ' + projectId);
     // A local shell does not use the project's default session (command, kind).
     const tpl = opts.shell ? { name: localShellName(opts.shell.id || ''), ...opts, kind: 'terminal' } : { ...project.defaultSession, ...opts };
-    if (project.type === 'psremote' && tpl.kind && tpl.kind !== 'terminal') throw new Error('Agent sessions need a POSIX shell; PowerShell remoting projects only open terminals.');
+    if (windowsTarget(project) && !opts.shell && tpl.kind && tpl.kind !== 'terminal') throw new Error('Agent sessions need a Linux or macOS shell; on Windows machines run the agent in a terminal.');
     const name = opts.exactName ? opts.name : this.uniqueName(projectId, tpl.name || 'shell');
     const o = { ...tpl, name };
     const s = o.kind === 'agent' ? this.agentFactory(this, project, o)
