@@ -57,6 +57,28 @@ export async function dropOnTerminal(ctx, sessionId, paths) {
   await upload(t.projectId, paths, t.dir, `${t.label}:${t.dir}`);
 }
 
+// Image from the clipboard pasted into a terminal: saved as a PNG and its path typed in, so agents
+// (Claude Code, Copilot, …) pick it up as an image. Remote shells get the file in /tmp on their machine.
+// Returns false when the clipboard holds no image.
+export async function pasteImage(ctx, sessionId) {
+  const file = await call('clipboardImage');
+  if (!file) return false;
+  let t;
+  try { t = await call('filesDropTarget', sessionId); } catch (e) { toast(e.message, { error: true }); return true; }
+  if (!t.remote) {
+    call('write', sessionId, quoteLocal(file, ctx.S.platform === 'win32') + ' ');
+    return true;
+  }
+  const j = job(`Uploading the pasted image to ${t.label}`);
+  try {
+    await call('filesUpload', t.projectId, [file], '/tmp', j.jobId);
+    call('write', sessionId, quoteLocal('/tmp/' + base(file), false) + ' ');
+  } catch (e) {
+    toast('Image paste failed: ' + e.message, { error: true, ms: 10000 });
+  } finally { j.finish(); }
+  return true;
+}
+
 // File browser for a project (starts in dir, else the project directory).
 export async function openBrowser(ctx, projectId, dir) {
   const p = ctx.S.config.projects.find((x) => x.id === projectId);

@@ -19,7 +19,7 @@ export const FONT_MAX = 40;
 const clampFont = (n) => Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(n)));
 
 export class TermView {
-  constructor(id, { fontSize = 13, zoom = 0, scheme = 'default', contrast = false, onZoom, onKey, onDropFiles, isMac }) {
+  constructor(id, { fontSize = 13, zoom = 0, scheme = 'default', contrast = false, onZoom, onKey, onDropFiles, onPasteImage, isMac }) {
     this.id = id;
     this.baseFontSize = fontSize;
     // Per-session font zoom in px on top of the size the current view asks for (single, tiles, overview).
@@ -83,7 +83,8 @@ export class TermView {
         // which xterm handles too: prevent it and swallow a native paste right after this one.
         e.preventDefault();
         this.shortcutPasteAt = Date.now();
-        navigator.clipboard.readText().then((t) => t && this.term.paste(t));
+        // No text: maybe an image (screenshot), pasted as a file path.
+        navigator.clipboard.readText().then((t) => (t ? this.term.paste(t) : onPasteImage && onPasteImage(id)));
         return false;
       }
       // App shortcuts are handled globally.
