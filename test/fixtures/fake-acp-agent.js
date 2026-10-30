@@ -14,8 +14,10 @@ async function handle(msg) {
   const { id, method, params } = msg;
   if (method === 'initialize') return send({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { loadSession: false }, authMethods: [] } });
   if (method === 'session/new') {
-    send({ jsonrpc: '2.0', id, result: { sessionId: 's1', configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: model, options: [{ value: 'fake/small', name: 'fake/Small' }, { value: 'fake/large', name: 'fake/Large' }] }] } });
-    update('s1', { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'review', description: 'Review changes' }] });
+    // Answer and first update in one write, so both arrive in the same chunk (as they often do on macOS / Linux).
+    const res = { jsonrpc: '2.0', id, result: { sessionId: 's1', configOptions: [{ id: 'model', category: 'model', type: 'select', currentValue: model, options: [{ value: 'fake/small', name: 'fake/Small' }, { value: 'fake/large', name: 'fake/Large' }] }] } };
+    const cmds = { jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'review', description: 'Review changes' }] } } };
+    process.stdout.write(JSON.stringify(res) + '\n' + JSON.stringify(cmds) + '\n');
     return;
   }
   if (method === 'session/set_config_option') { model = params.value; return send({ jsonrpc: '2.0', id, result: {} }); }

@@ -268,6 +268,7 @@ class AcpSession extends BaseSession {
     this.acpSessionId = r.sessionId;
     this.messages = [];
     this._applySessionInfo(r);
+    this._flushEarly();
     this.mgr.persistOpen(this.projectId);
     await this._applyChosenModel();
     this._emitMessages(true);
@@ -341,8 +342,18 @@ class AcpSession extends BaseSession {
   }
 
   // ---------- updates ----------
+  _flushEarly() {
+    const early = this._early || [];
+    this._early = null;
+    for (const p of early) if (p.sessionId === this.acpSessionId) this._onNotification('session/update', p);
+  }
+
   _onNotification(method, p) {
-    if (method !== 'session/update' || (p.sessionId && p.sessionId !== this.acpSessionId)) return;
+    if (method !== 'session/update') return;
+    // Updates sent right after the session/new answer (e.g. the command list) can be read in the same chunk,
+    // before the awaiting code has stored the new session id: keep them until it has.
+    if (p.sessionId && !this.acpSessionId) { (this._early || (this._early = [])).push(p); return; }
+    if (p.sessionId && p.sessionId !== this.acpSessionId) return;
     const u = p.update || {};
     this.lastOutputAt = Date.now();
     switch (u.sessionUpdate) {
@@ -559,6 +570,7 @@ class AcpSession extends BaseSession {
       this.messages = [];
       this.usage = null;
       this._applySessionInfo(r);
+      this._flushEarly();
       await this._applyChosenModel();
       this.mgr.persistOpen(this.projectId);
       this._emitMessages(true);
