@@ -10,6 +10,7 @@ const { HostMonitor } = require('./hosts');
 const { ForwardManager } = require('./forwards');
 const { DockerManager, execCommand: dockerExecCommand } = require('./docker');
 const { MonitorManager } = require('./monitor');
+const { detectLocalShells } = require('./connect');
 const { testConnection: psremoteTest } = require('./psremote');
 const { AuditLog } = require('./audit');
 const { McpService } = require('./mcp');
@@ -248,6 +249,7 @@ const api = {
 
   // sessions
   openSession: (projectId, opts) => sessions.open(projectId, opts || {}).info(),
+  localShells: () => detectLocalShells(),
   startAll: (projectId) => {
     const p = store.getProject(projectId);
     const existing = new Set(sessions.list(projectId).map((s) => s.name));
@@ -335,6 +337,8 @@ const api = {
   filesDropTarget: async (sessionId) => {
     const s = sessions.get(sessionId);
     if (!s || s.kind !== 'terminal') throw new Error('not a terminal session');
+    // A local shell gets the dropped paths as text, like a local project.
+    if (s.shell) return { projectId: s.projectId, dir: '', label: 'local', remote: false };
     const f = projectFiles(s.projectId);
     return { projectId: s.projectId, dir: await f.sessionCwd(s), label: f.label, remote: !(f instanceof LocalFiles) };
   },

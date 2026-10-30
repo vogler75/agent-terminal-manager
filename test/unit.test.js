@@ -168,3 +168,40 @@ test('session lookup accepts "project/name" together with a project argument', (
   assert.strictEqual(mgr.find('b'), dev2);
   assert.strictEqual(mgr.find('nope/dev'), null);
 });
+
+test('local shell: any project can open one; no tmux, no default session, home directory when empty', () => {
+  const { buildLocalShell, localShellName, localShellLabel } = require('../src/main/connect');
+  const { SessionManager } = require('../src/main/sessions');
+  const os = require('os');
+  const ssh = { id: 'p', name: 'p', type: 'ssh', host: 'example.com', user: 'u', port: 22, tmux: true, directory: '/srv/app' };
+  // session.shell wins over the project's connection
+  const spec = buildSpawn(ssh, null, { id: 's', name: 'x', command: '', shell: { id: process.platform === 'win32' ? 'cmd' : '/bin/sh', dir: '' } });
+  assert.strictEqual(spec.tmuxName, null);
+  assert.strictEqual(spec.cwd, os.homedir());
+  assert.ok(!/ssh/i.test(spec.file));
+  if (process.platform === 'win32') {
+    assert.deepStrictEqual(buildLocalShell({ id: 'wsl:Ubuntu', dir: '~/src' }).args, ['-d', 'Ubuntu', '--cd', '~/src']);
+    assert.deepStrictEqual(buildLocalShell({ id: 'wsl' }).args, ['--cd', '~']);
+    assert.strictEqual(buildLocalShell({ id: 'powershell', dir: 'C:\work' }).cwd, 'C:\work');
+    assert.throws(() => buildLocalShell({ id: 'nope' }), /Unknown local shell/);
+  }
+  assert.strictEqual(localShellName('wsl:Ubuntu-22.04'), 'wsl-ubuntu-22-04');
+  assert.strictEqual(localShellLabel('pwsh'), 'PowerShell 7');
+  // The session manager does not apply the project's default session to a local shell and persists the choice.
+  const store = { getProject: () => ({ ...ssh, defaultSession: { name: 'agent', command: 'claude', kind: 'agent' } }), save() {} };
+  const mgr = Object.create(SessionManager.prototype);
+  mgr.store = store; mgr.sessions = new Map(); mgr.emit = () => {}; mgr.persistOpen = () => {};
+  let opened = null;
+  mgr.agentFactory = () => { throw new Error('agent factory must not be used'); };
+  const TS = require('../src/main/sessions').TerminalSession;
+  const spawn = TS.prototype.spawn;
+  TS.prototype.spawn = function () { opened = this; };
+  try {
+    const s = mgr.open('p', { shell: { id: 'cmd' } });
+    assert.strictEqual(s.kind, 'terminal');
+    assert.strictEqual(s.command, '');
+    assert.strictEqual(s.name, 'cmd');
+    assert.deepStrictEqual(s.persistExtra(), { shell: { id: 'cmd', dir: '' } });
+    assert.strictEqual(opened, s);
+  } finally { TS.prototype.spawn = spawn; }
+});

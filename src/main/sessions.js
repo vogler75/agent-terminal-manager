@@ -4,7 +4,7 @@ const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const { Terminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { buildSpawn, buildTmuxKill } = require('./connect');
+const { buildSpawn, buildTmuxKill, localShellName, localShellLabel } = require('./connect');
 
 let pty = null;
 function getPty() {
@@ -118,6 +118,8 @@ class TerminalSession extends BaseSession {
     super(mgr, project, opts);
     this.cols = opts.cols || 120;
     this.rows = opts.rows || 30;
+    // Local shell on this computer instead of the project's connection: {id, dir}.
+    this.shell = opts.shell && typeof opts.shell.id === 'string' ? { id: opts.shell.id, dir: opts.shell.dir || '' } : null;
     this.headless = new Terminal({ cols: this.cols, rows: this.rows, scrollback: 5000, allowProposedApi: true });
     this.serializer = new SerializeAddon();
     this.headless.loadAddon(this.serializer);
@@ -134,12 +136,20 @@ class TerminalSession extends BaseSession {
     this.spawn();
   }
 
+
+  persistExtra() { return this.shell ? { shell: this.shell } : {}; }
+
+  info() {
+    const i = super.info();
+    return this.shell ? { ...i, shell: { ...this.shell, label: localShellLabel(this.shell.id) } } : i;
+  }
+
   spawn() {
     const project = this.project;
     const host = project.hostId ? this.mgr.store.getHost(project.hostId) : null;
     let spec;
     try {
-      spec = buildSpawn(project, host, { id: this.id, name: this.name, command: this.command });
+      spec = buildSpawn(project, host, { id: this.id, name: this.name, command: this.command, shell: this.shell });
     } catch (e) {
       this._fail(e.message);
       return;
@@ -336,7 +346,8 @@ class SessionManager extends EventEmitter {
   open(projectId, opts = {}) {
     const project = this.store.getProject(projectId);
     if (!project) throw new Error('Unknown project ' + projectId);
-    const tpl = { ...project.defaultSession, ...opts };
+    // A local shell does not use the project's default session (command, kind).
+    const tpl = opts.shell ? { name: localShellName(opts.shell.id || ''), ...opts, kind: 'terminal' } : { ...project.defaultSession, ...opts };
     if (project.type === 'psremote' && tpl.kind && tpl.kind !== 'terminal') throw new Error('Agent sessions need a POSIX shell; PowerShell remoting projects only open terminals.');
     const name = opts.exactName ? opts.name : this.uniqueName(projectId, tpl.name || 'shell');
     const o = { ...tpl, name };

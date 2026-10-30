@@ -1,6 +1,8 @@
 'use strict';
 // Builds the process command line for a session: local shell, WSL or ssh, optionally wrapped in tmux.
 const os = require('os');
+const path = require('path');
+const fs = require('fs');
 
 const IS_WIN = process.platform === 'win32';
 // node-pty on Windows needs the extension to find the executable on PATH.
@@ -137,8 +139,92 @@ function projectDir(project, host) {
  * Returns { file, args, cwd, postStart } where postStart is text typed into the terminal
  * once the shell is up (used for start commands when tmux does not run them).
  */
+// Shells on this computer, independent of the project type. Ids: powershell, pwsh, cmd, gitbash, wsl, wsl:<distro>,
+// or an absolute shell path on macOS / Linux.
+const GIT_BASH = ['ProgramFiles', 'ProgramW6432', 'ProgramFiles(x86)', 'LOCALAPPDATA']
+  .map((v) => process.env[v] && path.join(process.env[v], v === 'LOCALAPPDATA' ? path.join('Programs', 'Git') : 'Git', 'bin', 'bash.exe'))
+  .filter(Boolean);
+const findGitBash = () => GIT_BASH.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+
+function localShellLabel(id) {
+  if (!id) return '';
+  if (id === 'powershell') return 'Windows PowerShell';
+  if (id === 'pwsh') return 'PowerShell 7';
+  if (id === 'cmd') return 'Command Prompt';
+  if (id === 'gitbash') return 'Git Bash';
+  if (id === 'wsl') return 'WSL (default distribution)';
+  if (id.startsWith('wsl:')) return 'WSL: ' + id.slice(4);
+  return id.split('/').pop();
+}
+
+// Short session name for a local shell.
+function localShellName(id) {
+  if (id.startsWith('wsl:')) return 'wsl-' + id.slice(4).toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+  return { powershell: 'powershell', pwsh: 'pwsh', cmd: 'cmd', gitbash: 'bash', wsl: 'wsl' }[id] || id.split('/').pop();
+}
+
+// Shells available on this computer: [{id, label}]. Cached for a minute (wsl.exe -l is slow-ish).
+let shellCache = null;
+async function detectLocalShells() {
+  if (shellCache && Date.now() - shellCache.at < 60000) return shellCache.list;
+  const { execFile } = require('child_process');
+  const run = (file, args) => new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: 8000, encoding: 'buffer' }, (err, out) => resolve(err ? null : out)));
+  const ids = [];
+  if (IS_WIN) {
+    ids.push('powershell');
+    if (await run('where.exe', ['pwsh.exe'])) ids.push('pwsh');
+    ids.push('cmd');
+    if (findGitBash()) ids.push('gitbash');
+    // wsl.exe -l -q prints UTF-16LE, one distribution per line.
+    const out = await run('wsl.exe', ['-l', '-q']);
+    const distros = out ? out.toString('utf16le').replace(/\0/g, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : [];
+    for (const d of distros) if (!/^docker-desktop/.test(d)) ids.push('wsl:' + d);
+  } else {
+    let shells = [];
+    try { shells = fs.readFileSync('/etc/shells', 'utf8').split('\n').map((l) => l.trim()).filter((l) => l.startsWith('/')); } catch {}
+    const seen = new Set();
+    for (const sh of [process.env.SHELL, ...shells].filter(Boolean)) {
+      const base = sh.split('/').pop();
+      if (seen.has(base) || !fs.existsSync(sh)) continue;
+      seen.add(base);
+      ids.push(sh);
+    }
+  }
+  const list = ids.map((id) => ({ id, label: localShellLabel(id) }));
+  shellCache = { at: Date.now(), list };
+  return list;
+}
+
+// Spawn spec for a local shell (no tmux). dir empty = home directory.
+function buildLocalShell(shell, command = '') {
+  const id = shell.id || '';
+  const dir = (shell.dir || '').trim();
+  const winDir = dir ? dir.replace(/^~(?=$|[\\/])/, os.homedir()) : os.homedir();
+  const base = { cwd: winDir, postStart: command, tmuxName: null };
+  if (id === 'wsl' || id.startsWith('wsl:')) {
+    if (!IS_WIN) throw new Error('WSL shells are only available on Windows');
+    const distro = id.startsWith('wsl:') ? id.slice(4) : '';
+    return { ...base, cwd: os.homedir(), file: 'wsl.exe', args: [...(distro ? ['-d', distro] : []), '--cd', dir || '~'] };
+  }
+  if (IS_WIN) {
+    if (id === 'powershell' || !id) return { ...base, file: 'powershell.exe', args: ['-NoLogo'] };
+    if (id === 'pwsh') return { ...base, file: 'pwsh.exe', args: ['-NoLogo'] };
+    if (id === 'cmd') return { ...base, file: 'cmd.exe', args: [] };
+    if (id === 'gitbash') {
+      const bash = findGitBash();
+      if (!bash) throw new Error('Git Bash not found (looked for Git\\bin\\bash.exe in the program folders)');
+      return { ...base, file: bash, args: ['--login', '-i'], env: { CHERE_INVOKING: '1' } };
+    }
+    throw new Error('Unknown local shell: ' + id);
+  }
+  const file = id && id.startsWith('/') ? id : process.env.SHELL || '/bin/sh';
+  return { ...base, cwd: dir ? dir.replace(/^~(?=$|\/)/, os.homedir()) : os.homedir(), file, args: ['-l'] };
+}
+
 function buildSpawn(project, host, session) {
   const command = session.command || '';
+  // A local shell can be opened in any project, also next to remote sessions.
+  if (session.shell && session.shell.id !== undefined) return buildLocalShell(session.shell, command);
   const useTmux = !!project.tmux;
   const name = tmuxName(project, session.name);
   const dir = projectDir(project, host);
@@ -233,4 +319,5 @@ function buildRemoteExec(project, host, script) {
 module.exports = {
   SSH_BIN, psremoteScript, psPort, psq, buildSpawn, buildTmuxKill, buildForwardArgs, buildRemoteExec,
   tmuxName, tmuxScript, shq, posixDir, resolveTarget, sshBaseArgs, sshDest, projectDir, x11Mode,
+  buildLocalShell, localShellLabel, localShellName, findGitBash, detectLocalShells,
 };

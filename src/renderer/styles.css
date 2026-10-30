@@ -359,3 +359,7 @@ td.dk-created { white-space: nowrap; }
 .ps-help h4 { margin: 14px 0 4px; }
 .ps-help p { margin: 4px 0; color: var(--fg2); }
 .ps-code { margin: 4px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.split-btn { display: inline-flex; }
+.split-btn > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.split-btn > button:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 0; padding: 4px 6px; }
+.local-tag { color: var(--fg2); font-size: 11px; margin-right: -2px; }

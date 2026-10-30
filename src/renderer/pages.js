@@ -129,6 +129,16 @@ export async function editProject(ctx, p) {
   const monitorEnabled = h('input', { type: 'checkbox', checked: p.monitor && p.monitor.enabled });
   const dockerCmd = h('input', { value: (p.docker && p.docker.command) || '', placeholder: 'docker', style: { width: '160px' } });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
+  const ls = p.localShell || {};
+  const lsShell = h('select', null, h('option', { value: '' }, 'None'), ls.shell ? h('option', { value: ls.shell, selected: true }, ls.shell) : null);
+  // Fill in the shells found on this computer (the saved one stays selected even when it is not found).
+  call('localShells').then((list) => {
+    clear(lsShell);
+    lsShell.appendChild(h('option', { value: '' }, 'None'));
+    for (const x of list) lsShell.appendChild(h('option', { value: x.id, selected: x.id === ls.shell }, x.label));
+    if (ls.shell && !list.some((x) => x.id === ls.shell)) lsShell.appendChild(h('option', { value: ls.shell, selected: true }, ls.shell + ' (not found)'));
+  }).catch(() => {});
+  const lsDir = h('input', { value: ls.directory || '', placeholder: S.platform === 'win32' ? 'e.g. C:\\work\\project or, for WSL, ~/project' : 'e.g. ~/project' });
   const dsName = h('input', { value: p.defaultSession.name || 'shell' });
   const dsCmd = h('input', { value: p.defaultSession.command || '', placeholder: 'e.g. claude (optional)' });
   const dsKind = h('select', null, SESSION_TYPES.map(([v, l]) => h('option', { value: v, selected: sessionType(p.defaultSession) === v }, l)));
@@ -208,6 +218,9 @@ export async function editProject(ctx, p) {
     field('Start command', dsCmd),
     field('Type', dsKind),
     agentCmdLabel, h('div', null, agentCmd, cmdList), agentCmdHint,
+    h('h3', { class: 'full' }, 'Local shell (Session ▾ menu)'),
+    field('Shell', lsShell, 'A shell on this computer next to the project’s sessions, e.g. PowerShell or WSL for an SSH project. All shells found here are also in the menu, started in the home directory.'),
+    field('Directory', lsDir, 'Empty = home directory'),
     h('h3', { class: 'full' }, 'Terminals (“Start all”)'),
     h('div', { class: 'full' }, terms.el),
     h('h3', { class: 'full' }, 'Saved commands'),
@@ -269,6 +282,7 @@ export async function editProject(ctx, p) {
         autoReconnect: auto.checked,
         docker: { enabled: dockerEnabled.checked, command: dockerCmd.value.trim() },
         monitor: { enabled: monitorEnabled.checked },
+        localShell: { shell: lsShell.value, directory: lsDir.value.trim() },
         thresholdSec: thr.value ? Number(thr.value) : null,
         defaultSession: { name: dsName.value.trim() || 'shell', command: dsCmd.value.trim(), ...fromSessionType(dsKind.value) },
         ...(() => {

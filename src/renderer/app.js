@@ -202,6 +202,7 @@ function renderSidebar() {
         },
         dot(s.status, { 'data-dot': s.id }),
         h('span', { class: 'sess-name' }, s.name),
+        s.shell ? h('span', { class: 'badge', title: 'Local shell: ' + s.shell.label + (s.shell.dir ? ' · ' + s.shell.dir : '') }, 'local') : null,
         s.kind !== 'terminal' ? h('span', { class: 'badge', title: s.kind === 'acp' ? (s.agentName || '') + ' via ACP' : 'OpenCode server API' }, s.kind === 'acp' ? 'acp' : 'agent') : null,
         s.orchestrator ? h('span', { class: 'badge', title: 'Orchestrator-Session' }, 'orch') : null,
         !s.shared ? h('span', { class: 'badge', title: 'Not shared with MCP' }, 'private') : null));
@@ -315,6 +316,22 @@ async function browseFrom(s) {
 }
 
 // Structured agent sessions: OpenCode server API or any agent via ACP.
+// Session ▾: the default session, the project's local shell and every shell found on this computer.
+async function sessionTypeMenu(e, p) {
+  const r = e.currentTarget.getBoundingClientRect();
+  if (!S.localShells) S.localShells = await call('localShells').catch(() => []);
+  const ls = p.localShell || {};
+  const label = (id) => (S.localShells.find((x) => x.id === id) || { label: id }).label;
+  contextMenu(r.left, r.bottom + 2, [
+    { label: `Default session (${p.type === 'local' ? 'local' : p.type.toUpperCase()}${p.directory ? ' · ' + p.directory : ''})`, action: () => openSession(p.id) },
+    ...(ls.shell ? [{ label: `Local: ${label(ls.shell)}${ls.directory ? ' · ' + ls.directory : ''}`, action: () => openSession(p.id, { shell: { id: ls.shell, dir: ls.directory || '' } }) }] : []),
+    '-',
+    ...S.localShells.map((x) => ({ label: x.label, action: () => openSession(p.id, { shell: { id: x.id } }) })),
+    '-',
+    { label: 'Configure local shell…', action: () => pages.editProject(ctx, p) },
+  ]);
+}
+
 function agentMenu(e, p) {
   const r = e.currentTarget.getBoundingClientRect();
   contextMenu(r.left, r.bottom + 2, [
@@ -393,7 +410,9 @@ function renderProject(main) {
     h('span', { class: 'muted' }, [p.type.toUpperCase(), host ? `${host.user ? host.user + '@' : ''}${host.hostname}` : p.host, p.wslDistro, p.directory, p.tmux ? 'tmux' : null].filter(Boolean).join(' · ')),
     forwardInfo(p),
     h('div', { class: 'spacer' }),
-    h('button', { onclick: () => openSession(p.id), title: 'New session with the default configuration (Ctrl+Shift+T)' }, '+ Session'),
+    h('span', { class: 'split-btn' },
+      h('button', { onclick: () => openSession(p.id), title: 'New session with the default configuration (Ctrl+Shift+T)' }, '+ Session'),
+      h('button', { onclick: (e) => sessionTypeMenu(e, p), title: 'Local shells on this computer and the project’s local shell' }, '▾')),
     h('button', { onclick: (e) => agentMenu(e, p), title: 'Start a structured agent session (chat view)' }, '+ Agent ▾'),
     (p.terminals || []).length ? h('button', { onclick: () => startAll(p.id), title: 'Start all configured terminals' }, '▶ All') : null,
     h('button', { class: m === 'tabs' ? 'active' : '', onclick: () => setMode(p, 'tabs') }, 'Tabs'),
@@ -438,7 +457,8 @@ function renderProject(main) {
     ondblclick: () => renameSession(s.id),
     onauxclick: (e) => { if (e.button === 1) closeSession(s.id); },
     oncontextmenu: (e) => { e.preventDefault(); sessionMenu(e, s); },
-  }, dot(s.status, { 'data-dot': s.id }), s.name, h('span', { class: 'x', title: 'Close', onclick: (e) => { e.stopPropagation(); closeSession(s.id); } }, '×')))));
+    title: s.shell ? `Local shell: ${s.shell.label}${s.shell.dir ? ' · ' + s.shell.dir : ''}` : null,
+  }, dot(s.status, { 'data-dot': s.id }), s.shell ? h('span', { class: 'local-tag', title: 'Local shell on this computer' }, '⌂') : null, s.name, h('span', { class: 'x', title: 'Close', onclick: (e) => { e.stopPropagation(); closeSession(s.id); } }, '×')))));
   const content = h('div', { class: 'content' });
   main.appendChild(content);
   if (dk) { dockerShown = true; docker.mount(ctx, content, p.id); return; }
@@ -706,6 +726,7 @@ export const ctx = { S, call, render, renderSoon, showView, openSession, selectS
   const st = await call('getState');
   S.config = st.config;
   S.platform = st.platform;
+  call('localShells').then((l) => { S.localShells = l; }).catch(() => {});
   S.hosts = st.hosts;
   S.forwards = st.forwards;
   S.mcp = st.mcp;
