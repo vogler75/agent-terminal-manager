@@ -522,6 +522,14 @@ async function discard(list) {
   act('discard', { files: list.map((f) => ({ path: f.path, orig: f.orig, x: f.x, status: f.status })) }, 'Discard');
 }
 
+const baseName = (p) => (p || '').split('/').pop();
+function defaultSummary(f) {
+  if (f.status === 'new') return `Create ${baseName(f.path)}`;
+  if (f.status === 'deleted') return `Delete ${baseName(f.path)}`;
+  if (f.status === 'renamed') return `Rename ${baseName(f.orig)} to ${baseName(f.path)}`;
+  return `Update ${baseName(f.path)}`;
+}
+
 function drawCommitBox() {
   if (!mounted) return;
   const d = cur();
@@ -530,7 +538,15 @@ function drawCommitBox() {
   els.commitBox.style.display = d.repo && d.tab === 'changes' ? '' : 'none';
   if (!st) { els.commitBtn.disabled = true; return; }
   const off = unchecked(d);
-  const n = st.files.filter((f) => !off.has(f.path)).length;
+  const sel = st.files.filter((f) => !off.has(f.path));
+  const n = sel.length;
+  // One file selected: a standard summary like GitHub Desktop's. It is replaced as the selection changes,
+  // until the user types their own.
+  const auto = n === 1 ? defaultSummary(sel[0]) : '';
+  if (els.summary.value === '' || els.summary.value === mounted.autoSummary) {
+    els.summary.value = auto;
+    mounted.autoSummary = auto;
+  }
   els.commitBtn.disabled = !n || !els.summary.value.trim() || !!d.busy || st.branch.detached;
   els.commitBtn.textContent = d.busy === 'Commit' ? 'Committing…' : `Commit ${n ? n + ' file' + (n > 1 ? 's' : '') + ' ' : ''}to ${st.branch.detached ? '(detached)' : st.branch.head}`;
   els.commitBtn.title = st.branch.detached ? 'Not on a branch' : !n ? 'Select files to commit' : !els.summary.value.trim() ? 'Enter a summary' : 'Ctrl+Enter';
