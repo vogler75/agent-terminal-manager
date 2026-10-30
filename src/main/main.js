@@ -67,7 +67,8 @@ function queueData(id, data) {
 const notificationLog = [];
 function notify(title, body, onClick) {
   notificationLog.push({ title, body, time: Date.now() });
-  if (!store.settings.notifications || !Notification.isSupported()) return;
+  // Test runs log notifications (checked by the E2E tests) without showing them on the desktop.
+  if (!store.settings.notifications || process.env.TERMCLAW_NO_DESKTOP_NOTIFICATIONS || !Notification.isSupported()) return;
   const n = new Notification({ title, body, silent: false });
   n.on('click', () => {
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }

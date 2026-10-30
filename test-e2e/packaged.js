@@ -19,7 +19,7 @@ const exe = process.argv[2] || findExe();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'termclaw-pkg-'));
   const port = 47950;
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ settings: { mcp: { port } }, projects: [{ id: 'p', name: 'pkg', type: 'local', tmux: false }] }));
-  const app = await electron.launch({ executablePath: exe, env: { ...process.env, TERMCLAW_USER_DATA: dir }, timeout: 60000 });
+  const app = await electron.launch({ executablePath: exe, env: { ...process.env, TERMCLAW_USER_DATA: dir, TERMCLAW_NO_DESKTOP_NOTIFICATIONS: '1' }, timeout: 60000 });
   const page = await app.firstWindow();
   await page.waitForFunction(() => window.__termclaw && window.__termclaw.S);
   await page.click('text=+ Open session');

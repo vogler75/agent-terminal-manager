@@ -10,7 +10,7 @@ async function launch({ config, env = {}, dataDir } = {}) {
   if (config) fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(config, null, 2));
   const app = await electron.launch({
     args: [path.join(__dirname, '..')],
-    env: { ...process.env, TERMCLAW_USER_DATA: dir, ...env },
+    env: { ...process.env, TERMCLAW_USER_DATA: dir, TERMCLAW_NO_DESKTOP_NOTIFICATIONS: '1', ...env },
     timeout: 60000,
   });
   // Keep the main process output for crash diagnostics (TERMCLAW_E2E_MAIN_LOG=path).
