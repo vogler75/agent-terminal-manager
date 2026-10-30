@@ -3,15 +3,15 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import '@xterm/xterm/css/xterm.css';
+import { schemeById, READABLE_CONTRAST } from './schemes.js';
 
-const THEME = {
-  background: '#14161b',
-  foreground: '#d7dae0',
-  cursor: '#5b9dff',
-  selectionBackground: '#3a4a6b',
-  black: '#1b1e25', red: '#f85149', green: '#3fb950', yellow: '#e3b341', blue: '#5b9dff', magenta: '#bc8cff', cyan: '#39c5cf', white: '#d7dae0',
-  brightBlack: '#6b7280', brightRed: '#ff7b72', brightGreen: '#56d364', brightYellow: '#f2cc60', brightBlue: '#79b8ff', brightMagenta: '#d2a8ff', brightCyan: '#56d4dd', brightWhite: '#ffffff',
+// Programs copy with OSC 52 (Copilot, Claude Code, tmux, vim, ... over SSH too). Reading the clipboard
+// that way is refused: a remote program must not see what the user copied elsewhere.
+const COPY_ONLY = {
+  readText: () => '',
+  writeText: (selection, text) => (selection === 'c' || selection === 'p' ? navigator.clipboard.writeText(text) : undefined),
 };
 
 export const FONT_MIN = 6;
@@ -19,7 +19,7 @@ export const FONT_MAX = 40;
 const clampFont = (n) => Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(n)));
 
 export class TermView {
-  constructor(id, { fontSize = 13, zoom = 0, onZoom, onKey, onDropFiles, isMac }) {
+  constructor(id, { fontSize = 13, zoom = 0, scheme = 'default', contrast = false, onZoom, onKey, onDropFiles, isMac }) {
     this.id = id;
     this.baseFontSize = fontSize;
     // Per-session font zoom in px on top of the size the current view asks for (single, tiles, overview).
@@ -49,7 +49,7 @@ export class TermView {
     this.term = new Terminal({
       fontSize: clampFont(fontSize + zoom),
       fontFamily: '"Cascadia Mono", "SF Mono", Menlo, Consolas, monospace',
-      theme: THEME,
+      theme: schemeById(scheme).theme,
       scrollback: 10000,
       allowProposedApi: true,
       cursorBlink: true,
@@ -58,7 +58,9 @@ export class TermView {
     this.fit = new FitAddon();
     this.term.loadAddon(this.fit);
     this.term.loadAddon(new WebLinksAddon((e, uri) => window.termclaw.call('openExternal', uri)));
+    this.term.loadAddon(new ClipboardAddon(undefined, COPY_ONLY));
     this.opened = false;
+    this.setScheme(scheme, contrast);
     this.lastSize = null;
 
     this.term.onData((d) => window.termclaw.call('write', id, d));
@@ -109,6 +111,17 @@ export class TermView {
 
   detach() {
     if (this.el.parentElement) this.el.parentElement.removeChild(this.el);
+  }
+
+  // Color scheme (see schemes.js); contrast = "Increase contrast" setting.
+  setScheme(id, contrast = false) {
+    const s = schemeById(id);
+    const ratio = Math.max(s.contrast || 1, contrast ? READABLE_CONTRAST : 1);
+    if (this.schemeId === s.id && this.term.options.minimumContrastRatio === ratio) return;
+    this.schemeId = s.id;
+    this.term.options.theme = s.theme;
+    this.term.options.minimumContrastRatio = ratio;
+    this.el.style.background = s.theme.background;
   }
 
   // Base size of the view the terminal is shown in; the session's zoom is added on top.

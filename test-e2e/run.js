@@ -292,6 +292,34 @@ const cfgBase = () => {
     assert.strictEqual(fs2, 13);
   });
 
+  await step('Terminal color schemes: app setting, project, session (session menu), contrast', async () => {
+    const scheme = () => page.evaluate((id) => window.__termclaw.terms.get(id).schemeId, ids.local);
+    await page.click('#sidebar .proj-name:text("lokal")');
+    await page.click('.tabs .tab:has-text("shell")', { button: 'right' });
+    await page.click('.menu div:text("Color scheme…")');
+    await page.click('.scheme-item:has-text("Nord")');
+    assert.strictEqual(await scheme(), 'nord', 'previewed while picking');
+    await page.click('.modal button:has-text("Cancel")');
+    assert.strictEqual(await scheme(), 'default', 'cancel restores');
+    await page.click('.tabs .tab:has-text("shell")', { button: 'right' });
+    await page.click('.menu div:text("Color scheme…")');
+    await page.click('.scheme-item:has-text("Solarized Light")');
+    await page.click('.modal button:has-text("Apply")');
+    assert.strictEqual(await scheme(), 'solarized-light');
+    const bg = await page.evaluate((id) => getComputedStyle(window.__termclaw.terms.get(id).el).backgroundColor, ids.local);
+    assert.strictEqual(bg, 'rgb(253, 246, 227)');
+    await page.evaluate(() => localStorage.removeItem('termScheme'));
+    await app.evaluate(() => globalThis.__termclaw.store.updateSettings({ terminalScheme: 'dracula', terminalContrast: true }));
+    await page.evaluate(() => Object.assign(window.__termclaw.S.config.settings, { terminalScheme: 'dracula', terminalContrast: true }));
+    await page.click('#sidebar .proj-name:text("lokal")');
+    await waitFor(async () => (await scheme()) === 'dracula', { msg: 'app setting applied' });
+    assert.strictEqual(await page.evaluate((id) => window.__termclaw.terms.get(id).term.options.minimumContrastRatio, ids.local), 4.5);
+    await app.evaluate(() => globalThis.__termclaw.store.updateSettings({ terminalScheme: 'default', terminalContrast: false }));
+    await page.evaluate(() => Object.assign(window.__termclaw.S.config.settings, { terminalScheme: 'default', terminalContrast: false }));
+    await page.click('#sidebar .proj-name:text("lokal")');
+    await waitFor(async () => (await scheme()) === 'default', { msg: 'back to default' });
+  });
+
   await step('P3 sessions keep running and keep scrollback when switching projects', async () => {
     await m.send(ids.local, 'echo before-switch-' + RUN);
     await page.click('#sidebar button:has-text("Hosts")');

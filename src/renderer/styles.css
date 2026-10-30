@@ -95,7 +95,7 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 /* terminal container */
 .termwrap { position: absolute; inset: 0; padding: 4px 2px 2px 6px; background: var(--bg); }
 .termwrap .xterm { height: 100%; }
-.termwrap .xterm-viewport { scrollbar-width: thin; }
+.termwrap .xterm-viewport { scrollbar-width: thin; background-color: transparent !important; }
 .term-zoom { position: absolute; top: 8px; right: 14px; z-index: 5; padding: 3px 8px; border-radius: 4px; background: rgba(20,22,27,.88); border: 1px solid var(--border, #333); color: var(--fg2, #aaa); font-size: 12px; pointer-events: none; }
 .overlay-err { position: absolute; right: 16px; bottom: 16px; z-index: 10; background: var(--bg3); border: 1px solid var(--red); border-radius: var(--radius); padding: 10px 12px; max-width: 420px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 .overlay-err .msg { color: var(--fg); margin-bottom: 8px; }
@@ -450,3 +450,12 @@ td.dk-created { white-space: nowrap; }
 .git-pop-foot .spacer { flex: 1; }
 .git-empty-row { padding: 12px; color: var(--fg3); text-align: center; }
 .git-confirm-list { max-height: 180px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 12px; }
+
+/* color scheme picker (session menu) */
+.scheme-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; }
+.scheme-item { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.scheme-item:hover { background: var(--bg3, rgba(255,255,255,.05)); }
+.scheme-item.active { border-color: var(--accent, #5b9dff); }
+.scheme-sw { display: flex; align-items: center; gap: 3px; padding: 4px 6px; border-radius: 4px; font-family: "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; border: 1px solid rgba(128,128,128,.3); }
+.scheme-sw span { margin-right: 4px; }
+.scheme-sw i { width: 9px; height: 12px; border-radius: 2px; display: inline-block; }

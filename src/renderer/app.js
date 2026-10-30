@@ -1,6 +1,7 @@
 // Renderer entry: state, sidebar (project tree), project views (tabs / tiles), overview and shortcuts.
-import { h, clear, toast, contextMenu, prompt, confirmDialog, timeAgo } from './ui.js';
+import { h, clear, toast, contextMenu, prompt, confirmDialog, timeAgo, modal } from './ui.js';
 import { TermView } from './terms.js';
+import { SCHEMES, schemeById } from './schemes.js';
 import { renderChat, renderChatLog, renderPermission } from './chat.js';
 import * as pages from './pages.js';
 import * as agents from './agents.js';
@@ -99,10 +100,46 @@ function zoomTarget() {
   return id && terms.get(id) && terms.get(id).el.isConnected ? terms.get(id) : null;
 }
 
+// Color scheme: the session's own choice (kept like the zoom), else the project's, else the app setting.
+function loadSchemes() { try { return JSON.parse(localStorage.getItem('termScheme') || '{}'); } catch { return {}; } }
+function saveScheme(id, scheme) {
+  const all = loadSchemes();
+  if (scheme) all[zoomKey(id)] = scheme; else delete all[zoomKey(id)];
+  try { localStorage.setItem('termScheme', JSON.stringify(all)); } catch {}
+}
+function projectScheme(s) {
+  const p = s && project(s.projectId);
+  return (p && p.colorScheme) || S.config.settings.terminalScheme || 'default';
+}
+function schemeFor(id) { return loadSchemes()[zoomKey(id)] || projectScheme(S.sessions.get(id)); }
+function applyScheme(id) { const t = terms.get(id); if (t) t.setScheme(schemeFor(id), !!S.config.settings.terminalContrast); }
+
+// Pick a session's color scheme; a click previews it in the terminal.
+function schemeDialog(s) {
+  const before = loadSchemes()[zoomKey(s.id)] || '';
+  let chosen = before;
+  const t = termFor(s.id);
+  const preview = () => t.setScheme(chosen || projectScheme(s), !!S.config.settings.terminalContrast);
+  const swatch = (sc) => h('div', { class: 'scheme-sw', style: { background: sc.theme.background, color: sc.theme.foreground } },
+    h('span', null, 'Aa'), ...['red', 'green', 'yellow', 'blue', 'magenta', 'cyan'].map((c) => h('i', { style: { background: sc.theme[c] } })));
+  const items = [{ id: '', name: `Project default (${schemeById(projectScheme(s)).name})`, sc: schemeById(projectScheme(s)) }, ...SCHEMES.map((sc) => ({ id: sc.id, name: sc.name, sc }))];
+  const list = h('div', { class: 'scheme-list' });
+  const draw = () => {
+    clear(list);
+    for (const it of items) list.appendChild(h('div', { class: 'scheme-item' + (it.id === chosen ? ' active' : ''), onclick: () => { chosen = it.id; preview(); draw(); } }, swatch(it.sc), h('span', null, it.name)));
+  };
+  draw();
+  modal({
+    title: `Color scheme · ${s.name}`, body: list, okText: 'Apply', width: '420px',
+    onOk: () => { saveScheme(s.id, chosen); applyScheme(s.id); },
+    onCancel: () => { chosen = before; preview(); },
+  });
+}
+
 function termFor(id) {
   let t = terms.get(id);
   if (!t) {
-    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, zoom: loadZooms()[zoomKey(id)] || 0, onZoom: saveZoom, onKey: handleShortcut, onDropFiles: (sid, paths) => files.dropOnTerminal(ctx, sid, paths), isMac: isMac() });
+    t = new TermView(id, { fontSize: S.config.settings.fontSize || 13, zoom: loadZooms()[zoomKey(id)] || 0, scheme: schemeFor(id), contrast: !!S.config.settings.terminalContrast, onZoom: saveZoom, onKey: handleShortcut, onDropFiles: (sid, paths) => files.dropOnTerminal(ctx, sid, paths), isMac: isMac() });
     terms.set(id, t);
   }
   return t;
@@ -320,7 +357,8 @@ function sessionMenu(e, s) {
     ...(s.kind === 'terminal' ? ['-',
       { label: 'Larger font  (Ctrl +)', action: () => termFor(s.id).zoomBy(1) },
       { label: 'Smaller font  (Ctrl −)', action: () => termFor(s.id).zoomBy(-1) },
-      { label: 'Reset font size  (Ctrl 0)', action: () => termFor(s.id).zoomBy(0) }] : []),
+      { label: 'Reset font size  (Ctrl 0)', action: () => termFor(s.id).zoomBy(0) },
+      { label: 'Color scheme…', action: () => schemeDialog(s) }] : []),
     '-',
     { label: 'Close (tmux keeps running)', action: () => closeSession(s.id, false) },
     { label: 'Close and kill tmux session', action: () => closeSession(s.id, true) },
@@ -381,9 +419,14 @@ async function startAll(pid) {
 // ---------- main area ----------
 let extraShown = null;
 function renderMain() {
+  // Re-rendering moves the terminal element, which drops its focus: give it back.
+  const a = document.activeElement;
+  const focused = a && a.closest('.xterm') && a.closest('[data-sid]');
   extraShown = null;
   renderMainView();
   for (const x of EXTRAS) if (x.key !== extraShown) x.mod.unmount();
+  const t = focused && terms.get(focused.dataset.sid);
+  if (t && t.el.isConnected) t.focus();
 }
 
 function renderMainView() {
@@ -488,6 +531,7 @@ function mountSession(container, s, { fontSize, compact = false } = {}) {
   }
   const t = termFor(s.id);
   t.setFontSize(fontSize);
+  applyScheme(s.id);
   t.attach(box);
   if (!compact && (s.status === 'error') && s.error) {
     box.appendChild(h('div', { class: 'overlay-err' },

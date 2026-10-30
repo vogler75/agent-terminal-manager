@@ -2,6 +2,7 @@
 import { h, clear, toast, modal, field, confirmDialog, fmtTime, timeAgo } from './ui.js';
 import { renderMessages, fillStatus } from './chat.js';
 import { projectSetupSection } from './agents.js';
+import { SCHEMES } from './schemes.js';
 
 // Editable list of rows (terminals, saved commands, port forwards).
 function rowsEditor(items, cols) {
@@ -117,6 +118,7 @@ export async function editProject(ctx, p) {
   const gitDepth = h('input', { type: 'number', value: gitCfg.depth || 3, min: 1, max: 8, style: { width: '70px' } });
   const dockerCmd = h('input', { value: (p.docker && p.docker.command) || '', placeholder: 'docker', style: { width: '160px' } });
   const thr = h('input', { type: 'number', value: p.thresholdSec ?? '', placeholder: `default (${S.config.settings.defaultThresholdSec || 5} s)`, min: 1 });
+  const scheme = h('select', null, h('option', { value: '' }, 'App default'), SCHEMES.map((sc) => h('option', { value: sc.id, selected: p.colorScheme === sc.id }, sc.name)));
   const ls = p.localShell || {};
   const lsShell = h('select', null, h('option', { value: '' }, 'None'), ls.shell ? h('option', { value: ls.shell, selected: true }, ls.shell) : null);
   // Fill in the shells found on this computer (the saved one stays selected even when it is not found).
@@ -192,6 +194,7 @@ export async function editProject(ctx, p) {
     grp(x11Only, h('label', null, 'X11 forwarding'), h('div', null, x11, x11Hint)),
     grp(displayOnly, ...field('X display', x11Display)),
     field('Auto-reconnect', h('label', { class: 'row' }, auto, 'Reconnect automatically when the connection drops')),
+    ...field('Terminal colors', scheme, 'Color scheme for this project’s terminals, e.g. to tell production machines apart; single sessions can override it (session menu)'),
     grp(posixOnly, ...field('Docker', h('div', { class: 'row' }, h('label', { class: 'row' }, dockerEnabled, 'Docker tab: containers, logs, shell, images, volumes'), h('span', { class: 'muted' }, 'CLI'), dockerCmd),
       'Uses the Docker CLI on the project machine (docker system dial-stdio; no port is opened). The user must be allowed to use Docker, e.g. in the docker group.')),
     grp(posixOnly, ...field('Monitor', h('label', { class: 'row' }, monitorEnabled, 'Monitor tab: CPU, memory, disk and network I/O, disk usage per mount, programs'),
@@ -269,6 +272,7 @@ export async function editProject(ctx, p) {
         x11: x11.value,
         x11Display: x11Display.value.trim(),
         autoReconnect: auto.checked,
+        colorScheme: scheme.value,
         docker: { enabled: dockerEnabled.checked, command: dockerCmd.value.trim() },
         monitor: { enabled: monitorEnabled.checked },
         git: { enabled: gitEnabled.checked, paths: gitPaths.value.trim(), depth: Math.max(1, Math.min(8, Number(gitDepth.value) || 3)) },
@@ -629,6 +633,8 @@ export function renderSettings(ctx, main) {
   const thr = h('input', { type: 'number', value: st.defaultThresholdSec || 5, min: 1 });
   const fs = h('input', { type: 'number', value: st.fontSize || 13, min: 8, max: 24 });
   const ofs = h('input', { type: 'number', value: st.overviewFontSize || '', placeholder: 'automatic', min: 5, max: 16 });
+  const scheme = h('select', null, SCHEMES.map((sc) => h('option', { value: sc.id, selected: (st.terminalScheme || 'default') === sc.id }, sc.name)));
+  const contrast = h('input', { type: 'checkbox', checked: !!st.terminalContrast });
   const notif = h('input', { type: 'checkbox', checked: st.notifications });
   const oc = h('input', { value: st.opencodePath || '', placeholder: 'detect automatically' });
   const ocInfo = h('span', { class: 'muted' });
@@ -639,11 +645,13 @@ export function renderSettings(ctx, main) {
         field('Status threshold (s)', thr, 'Default for projects without their own threshold'),
         field('Font size', fs),
         field('Overview font size', ofs, 'Empty = depends on the number of tiles'),
+        field('Terminal colors', scheme, 'Projects and single sessions can use another scheme (project editor, session menu)'),
+        field('Contrast', h('label', { class: 'row' }, contrast, 'Increase contrast: adjust text colors that are hard to read on their background (e.g. blue on green)')),
         field('Notifications', h('label', { class: 'row' }, notif, 'Desktop notification when a session switches to “waiting”')),
         field('OpenCode program', h('div', { class: 'row' }, oc, h('button', { onclick: async () => { const p = await call('detectOpencode'); ocInfo.textContent = p ? 'found: ' + p : 'not found'; } }, 'Detect')), null),
         h('div', { class: 'hint' }, ocInfo),
         h('div', { class: 'full row' }, h('div', { class: 'spacer' }), h('button', { class: 'primary', onclick: async () => {
-          await call('updateSettings', { defaultThresholdSec: Number(thr.value) || 5, fontSize: Number(fs.value) || 13, overviewFontSize: Number(ofs.value) || null, notifications: notif.checked, opencodePath: oc.value.trim() });
+          await call('updateSettings', { defaultThresholdSec: Number(thr.value) || 5, fontSize: Number(fs.value) || 13, overviewFontSize: Number(ofs.value) || null, terminalScheme: scheme.value, terminalContrast: contrast.checked, notifications: notif.checked, opencodePath: oc.value.trim() });
           for (const t of ctx.terms.values()) t.baseFontSize = Number(fs.value) || 13;
           await reloadConfig(ctx);
           toast('Saved');

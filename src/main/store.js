@@ -11,6 +11,8 @@ const DEFAULT_SETTINGS = {
   defaultThresholdSec: 5,
   notifications: true,
   fontSize: 13,
+  terminalScheme: 'default', // color scheme id, see src/renderer/schemes.js
+  terminalContrast: false, // raise the contrast of hard to read color combinations
   opencodePath: '',
   skillsDir: '', // empty = <data folder>/skills
   mcp: {
@@ -60,6 +62,7 @@ const PROJECT_DEFAULTS = {
   monitor: { enabled: false }, // Monitor tab: CPU, memory, disk and network I/O, mounts, programs of a Linux machine
   tmux: true,
   autoReconnect: false,
+  colorScheme: '', // terminal color scheme; empty = the app setting
   thresholdSec: null, // null = global default
   defaultSession: { name: 'shell', command: '', kind: 'terminal' },
   terminals: [], // [{name, command, kind}] opened by "start all"
