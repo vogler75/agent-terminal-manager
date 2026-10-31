@@ -280,7 +280,8 @@ function renderSidebar() {
     navBtn('mcp', 'MCP', S.mcp.running ? '●' : '○', S.mcp.running ? 'running' : ''),
     navBtn('audit', 'Audit log'),
     navBtn('library', 'Library', (S.config.mcpLibrary || []).length || undefined),
-    navBtn('settings', 'Settings')));
+    navBtn('settings', 'Settings'),
+    h('div', { class: 'sb-version', title: 'Version and data folder: Settings', onclick: () => showView('settings') }, `TermClaw ${S.version ? 'v' + S.version : ''}`)));
 }
 
 // Drag & drop in the sidebar: projects among projects, sessions within their project.
@@ -792,6 +793,7 @@ export const ctx = { S, call, render, renderSoon, showView, openSession, selectS
   S.orchestrators = st.orchestrators;
   S.templates = st.templates;
   S.version = st.version;
+  document.title = `TermClaw ${st.version}`;
   S.dataDir = st.dataDir;
   S.stdioBridge = st.stdioBridge;
   S.audit = await call('auditList');

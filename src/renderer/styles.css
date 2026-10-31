@@ -69,6 +69,8 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .sb-bottom button { font-size: 12px; text-align: left; }
 .sb-bottom button .count { float: right; color: var(--fg3); }
 .sb-bottom button .count.running { color: var(--green); }
+.sb-version { grid-column: 1 / -1; font-size: 11px; color: var(--fg3); padding: 2px 4px 0; cursor: pointer; user-select: text; }
+.sb-version:hover { color: var(--fg2); }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg3); flex: none; display: inline-block; }
 .dot.working { background: var(--amber); animation: pulse 1.2s infinite; }
