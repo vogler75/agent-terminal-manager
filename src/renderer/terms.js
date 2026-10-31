@@ -11,7 +11,8 @@ import { schemeById, READABLE_CONTRAST } from './schemes.js';
 // that way is refused: a remote program must not see what the user copied elsewhere.
 const COPY_ONLY = {
   readText: () => '',
-  writeText: (selection, text) => (selection === 'c' || selection === 'p' ? navigator.clipboard.writeText(text) : undefined),
+  // Any selection (c, p, s0…, or empty as tmux sends it) goes to the system clipboard; there is no other.
+  writeText: (selection, text) => (text ? navigator.clipboard.writeText(text) : undefined),
 };
 
 export const FONT_MIN = 6;
@@ -85,6 +86,14 @@ export class TermView {
         this.shortcutPasteAt = Date.now();
         // No text: maybe an image (screenshot), pasted as a file path.
         navigator.clipboard.readText().then((t) => (t ? this.term.paste(t) : onPasteImage && onPasteImage(id)));
+        return false;
+      }
+      // Shift+PageUp/Down on the alternate screen (tmux, full-screen TUIs) has no scrollback in xterm:
+      // when the program tracks the mouse, send wheel events instead, so tmux scrolls its history.
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && (e.code === 'PageUp' || e.code === 'PageDown')
+        && this.term.buffer.active.type === 'alternate' && this.term.modes.mouseTrackingMode !== 'none') {
+        const wheel = `\x1b[<${e.code === 'PageUp' ? 64 : 65};1;1M`;
+        window.termclaw.call('write', id, wheel.repeat(Math.max(1, Math.round((this.term.rows - 2) / 5))));
         return false;
       }
       // App shortcuts are handled globally.

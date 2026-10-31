@@ -27,6 +27,9 @@ function posixDir(dir) {
 
 // Shell script that attaches to (or creates) a named tmux session, running `command` on creation.
 // Falls back to a plain login shell when tmux is missing on the target.
+// Mouse mode is switched on for the session (not globally), so the wheel scrolls tmux' history: tmux runs
+// on the alternate screen, where the terminal itself has no scrollback. A drag selects in tmux and copies
+// to the system clipboard via OSC 52.
 // Sessions from before the rename (atm-…) are taken over: renamed to the new name; a session that
 // already has the new name is kept as <name>-replaced, not killed.
 function tmuxScript(name, dir, command) {
@@ -42,6 +45,7 @@ function tmuxScript(name, dir, command) {
     : '';
   return `${cdPart}if command -v tmux >/dev/null 2>&1; then ` + takeOver +
     `tmux has-session -t ${shq('=' + name)} 2>/dev/null || { ${create}; }; ` +
+    `tmux set-option -t ${shq('=' + name + ':')} mouse on >/dev/null 2>&1; ` +
     `exec tmux attach-session -t ${shq('=' + name)}; ` +
     `else echo '[termclaw] tmux not found, starting plain shell'; ${command ? command + '; ' : ''}exec "\${SHELL:-/bin/sh}" -l; fi`;
 }
